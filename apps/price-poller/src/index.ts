@@ -1,10 +1,10 @@
 import WebSocket from "ws";
-import { redis } from "@repo/redis";
 
 import { constants } from "./constants";
 import { transform } from "./utils";
 import { current_price } from "./inMemoryStore";
-import { JOB_KINDS, QUEUES } from "@repo/types";
+import { EVENT_KINDS, QUEUES } from "@repo/types";
+import { publisher } from "@repo/redis";
 
 const wsconnection = new WebSocket(constants.BACKPACK_URL);
 
@@ -23,16 +23,17 @@ wsconnection.on("message", (data) => {
   const transformedData = transform(recievedData.data);
 
   current_price[transformedData.ticket] = {
+    ...current_price[transformedData.ticket],
     price: transformedData.price,
   };
 });
 
 setInterval(async () => {
   console.log(current_price);
-  await redis.XADD(QUEUES.SEND_STREAM, "*", {
+  await publisher.XADD(QUEUES.SEND_STREAM, "*", {
     data: JSON.stringify({
-      kind: JOB_KINDS.PRICE_TICK,
-      payload: JSON.stringify(current_price),
+      kind: EVENT_KINDS.PRICE_TICK,
+      payload: current_price,
     }),
   });
 }, 5000);

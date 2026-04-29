@@ -1,16 +1,20 @@
 import { createClient, type RedisClientType } from "redis";
 
 const globalForRedis = globalThis as unknown as {
-  redis?: RedisClientType;
+  publisher?: RedisClientType;
+  subscriber?: RedisClientType;
 };
 
-export const redis = globalForRedis.redis ?? createClient();
+export const publisher = globalForRedis.publisher ?? createClient();
 
-if (!globalForRedis.redis) {
-  try {
-    await redis.connect();
-    globalForRedis.redis = redis;
-  } catch (error) {
-    console.error(error);
-  }
+export const subscriber = globalForRedis.subscriber ?? createClient();
+
+if (!globalForRedis.publisher) {
+  await publisher.connect();
+  globalForRedis.publisher = publisher;
+}
+
+if (!globalForRedis.subscriber) {
+  await subscriber.connect();
+  globalForRedis.subscriber = subscriber;
 }

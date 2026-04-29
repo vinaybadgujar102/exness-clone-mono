@@ -1,0 +1,19 @@
+{
+  "name": "timescale-db",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@repo/redis": "workspace:*",
+    "@repo/types": "workspace:*",
+    "@types/pg": "^8.20.0",
+    "pg": "^8.20.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

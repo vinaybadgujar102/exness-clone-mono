@@ -7,6 +7,9 @@ import { prisma } from "../lib/prisma";
 import type { loginSchema } from "../validators/authValidator";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import { Resend } from "resend";
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const authRouter = Router();
 
@@ -42,6 +45,15 @@ authRouter.post("/login", async (req: Request, res: Response) => {
 
   const link = `http://localhost:3000/api/v1/auth/login/post?token=${token}`;
 
+  const emailResponse = await resend.emails.send({
+    from: process.env.EMAIL_FROM as string,
+    to: email,
+    subject: "Sign in to your account",
+    html: `<p>Click <a href="${link}">here</a> to sign in to your account</p>`,
+  });
+
+  console.log(emailResponse);
+
   return res.json({
     message: "Check your email for a sign-in link",
     link,
@@ -56,7 +68,7 @@ authRouter.get("/login/post", async (req: Request, res: Response) => {
 
   const hashedToken = crypto
     .createHash("sha256")
-    .update(rawToken)
+    .update(rawToken as string)
     .digest("hex");
   const stored = await prisma.magicToken.findFirst({
     where: {
@@ -103,7 +115,7 @@ authRouter.get("/login/post", async (req: Request, res: Response) => {
     {
       userId: stored.userId,
     },
-    "SECRET",
+    process.env.JWT_SECRET as string,
     {
       expiresIn: "7d",
     },
@@ -136,9 +148,7 @@ authRouter.get("/login/post", async (req: Request, res: Response) => {
   });
   const response = await promise;
 
-  return res.json({
-    message: "logged in",
-  });
+  res.redirect("http://localhost:3001/webtrading");
 });
 
 authRouter.post("/signup", async (req: Request, res: Response) => {

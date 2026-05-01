@@ -4,7 +4,14 @@ import { listenForResponse } from "./validators/worker.ts";
 import v1Router from "./routes/index.ts";
 
 const app = express();
-app.use(cors());
+
+// `origin: "*"` breaks the browser when the web app uses `credentials: "include"`.
+app.use(
+  cors({
+    credentials: true,
+    origin: ["http://localhost:3001"],
+  }),
+);
 app.use(express.json());
 
 export const pending = new Map();

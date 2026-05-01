@@ -4,7 +4,7 @@ This document describes the **current** layout, responsibilities, and how the pi
 
 ## Purpose
 
-A **Turborepo + Bun** monorepo modeling a broker-style stack: HTTP API for auth and trade requests, a **Redis Streams** bus, a **trade engine** worker, a **price poller** feeding live quotes, and a **TimescaleDB** consumer for ticks and (intended) candle aggregates. Shared contracts live in `@repo/types`; Redis access is centralized in `@repo/redis`.
+A **Turborepo + Bun** monorepo modeling a broker-style stack: HTTP API for auth and trade requests, a **Redis Streams** bus, a **trade engine** worker, a **price poller** feeding live quotes, a **TimescaleDB** consumer for ticks and (intended) candle aggregates, and a **Next.js** trading UI in `apps/web` (port `3001`) that calls the API with credentials. Shared contracts live in `@repo/types`; Redis access is centralized in `@repo/redis`.
 
 The root `README.md` is still the generic Turborepo starter text; this file reflects the **actual** apps and packages in the tree.
 
@@ -36,7 +36,8 @@ flowchart LR
     Browser[Browser / HTTP client]
   end
 
-  subgraph apps [Bun apps]
+  subgraph apps [Apps]
+    WEB[web Next :3001]
     API[api :3000]
     PE[price-poller]
     TE[trade-engine]
@@ -47,7 +48,8 @@ flowchart LR
   PG[(PostgreSQL + Prisma)]
   Backpack[Backpack WebSocket]
 
-  Browser --> API
+  Browser --> WEB
+  WEB --> API
   API --> PG
   API --> Redis
   PE --> Backpack
@@ -73,6 +75,7 @@ exness-clone-mono/
 ├── PROJECT_INFO.md           # this file
 ├── apps/
 │   ├── api/                  # Express HTTP API, Prisma, Redis publisher + response consumer
+│   ├── web/                  # Next.js 15 terminal UI → API (see below)
 │   ├── trade-engine/         # Redis consumer: prices + orders, in-memory trading
 │   ├── price-poller/         # WebSocket → Redis price ticks
 │   └── timescale-db/         # Redis consumer → Postgres/Timescale inserts + MVs
@@ -99,6 +102,14 @@ Generated / vendor-style paths under `apps/api/generated/prisma/` come from Pris
   - `/trade` — behind `authMiddleware`; trade operations enqueue jobs to Redis and await responses via in-memory `pending` map + `listenForResponse` in `src/validators/worker.ts`.
 - **Database**: Prisma 7 + `@prisma/adapter-pg`, schema `User`, `MagicToken`; config `prisma.config.ts` + `DATABASE_URL`; migrations under `prisma/migrations/`.
 - **Dependencies**: `@repo/redis`, `@repo/types`, `zod`, `jsonwebtoken`, etc.
+
+### `apps/web` (package name: `web`)
+
+- **Stack**: Next.js 15 (App Router), React 19, Tailwind CSS 4, `@repo/types` for `AssetSymbols`.
+- **Port**: `3001` (`next dev` / `next start` scripts).
+- **UI**: Exness-inspired dark terminal — landing (`/`), magic-link helpers (`/login`), token callback (`/auth/callback?token=`), trading layout (`/trade`) with order ticket aligned to `openTradeRequest` / `closeTradeRequest`.
+- **API usage**: `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:3000`); `fetch` with `credentials: "include"` for `sessionToken`. Middleware redirects unauthenticated users away from `/trade`.
+- **Note**: Does not import `@repo/ui` yet; shared UI package remains optional for later.
 
 ### `apps/trade-engine`
 
@@ -133,7 +144,7 @@ Generated / vendor-style paths under `apps/api/generated/prisma/` come from Pris
 
 - **Exports**: `./src/*.tsx` — `button`, `card`, `code` stubs.
 - **Scripts**: `lint`, `check-types`, `generate:component` (turbo gen).
-- Used as a **shared React library** scaffold; no Next.js app in `apps/` currently consumes it in-repo.
+- Shared React library scaffold; `apps/web` does not consume it yet (local Tailwind components instead).
 
 ### `@repo/eslint-config` / `@repo/typescript-config`
 
@@ -154,6 +165,7 @@ Generated / vendor-style paths under `apps/api/generated/prisma/` come from Pris
 3. **Timescale** — for `timescale-db`: pool URL in `apps/timescale-db/src/db.ts` (or refactor to env).
 4. **Processes** — typically run in separate terminals (or filtered turbo):
    - `api` — `bun run dev` in `apps/api`
+   - `web` — `bun run dev` in `apps/web`
    - `trade-engine` — `bun run dev` in `apps/trade-engine`
    - `price-poller` — `bun run dev` in `apps/price-poller`
    - `timescale-db` — `bun run dev` in `apps/timescale-db`

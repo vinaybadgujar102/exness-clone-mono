@@ -107,8 +107,8 @@ Generated / vendor-style paths under `apps/api/generated/prisma/` come from Pris
 
 - **Stack**: Next.js 15 (App Router), React 19, Tailwind CSS 4, `@repo/types` for `AssetSymbols`.
 - **Port**: `3001` (`next dev` / `next start` scripts).
-- **UI**: Exness-inspired dark terminal — landing (`/`), magic-link helpers (`/login`), token callback (`/auth/callback?token=`), trading layout (`/trade`) with order ticket aligned to `openTradeRequest` / `closeTradeRequest`.
-- **API usage**: `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:3000`); `fetch` with `credentials: "include"` for `sessionToken`. Middleware redirects unauthenticated users away from `/trade`.
+- **UI**: Exness-style landing (`/`), magic-link login (`/login`), token callback (`/auth/callback?token=`), WebTrader-style layout at `/webtrading` (TradingView Lightweight Charts; order UI is presentational until wired to the API).
+- **API usage**: `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:3000`); `fetch` with `credentials: "include"` for `sessionToken`. Middleware redirects unauthenticated users away from `/webtrading`.
 - **Note**: Does not import `@repo/ui` yet; shared UI package remains optional for later.
 
 ### `apps/trade-engine`

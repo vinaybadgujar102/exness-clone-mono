@@ -48,7 +48,7 @@ function CallbackInner() {
           sessionStorage.removeItem(AUTH_REDIRECT_NEXT_KEY);
         }
         const target =
-          fromUrl ?? safeRedirectPath(fromSession) ?? "/trade";
+          fromUrl ?? safeRedirectPath(fromSession) ?? "/webtrading";
         router.replace(target);
         router.refresh();
       } catch (e) {

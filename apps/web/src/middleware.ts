@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 /** Path prefixes that require `sessionToken`. */
-const protectedPrefixes = ["/trade", "/webtrading"] as const;
+const protectedPrefixes = ["/webtrading"] as const;
 
 function isProtectedPath(pathname: string): boolean {
   return protectedPrefixes.some(
@@ -26,5 +26,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/trade/:path*", "/webtrading/:path*"],
+  matcher: ["/webtrading/:path*"],
 };

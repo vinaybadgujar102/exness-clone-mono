@@ -5,28 +5,14 @@
  */
 export function getApiBaseUrl(): string {
   if (typeof window !== "undefined") {
-    console.log(process.env.NEXT_PUBLIC_API_BASE_URL);
     return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000";
   }
-  console.log(process.env.NEXT_PUBLIC_API_BASE_URL);
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000";
 }
 
 export type LoginResponse = {
   message?: string;
   link?: string;
-};
-
-export type OrderApiPayload = {
-  success: boolean;
-  message: string;
-  data?: unknown;
-};
-
-export type OrderApiEnvelope = {
-  kind?: string;
-  requestId?: string;
-  payload?: OrderApiPayload;
 };
 
 export async function postLogin(email: string): Promise<LoginResponse> {
@@ -56,67 +42,4 @@ export async function getLoginPost(token: string): Promise<Response> {
     method: "GET",
     credentials: "include",
   });
-}
-
-export async function postOpenTrade(body: {
-  asset: string;
-  quantity: number;
-  margin: number;
-  side: "BUY" | "SELL";
-  leverage: number;
-}): Promise<{
-  ok: boolean;
-  status: number;
-  envelope?: OrderApiEnvelope;
-  raw?: unknown;
-}> {
-  const res = await fetch(`${getApiBaseUrl()}/api/v1/trade/trade`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    credentials: "include",
-  });
-  const raw: unknown = await res.json().catch(() => undefined);
-  return {
-    ok: res.ok,
-    status: res.status,
-    envelope: parseOrderResponse(raw),
-    raw,
-  };
-}
-
-function parseOrderResponse(raw: unknown): OrderApiEnvelope | undefined {
-  if (!raw || typeof raw !== "object") return undefined;
-  const o = raw as Record<string, unknown>;
-  if ("data" in o && o.data && typeof o.data === "object") {
-    return o.data as OrderApiEnvelope;
-  }
-  if ("payload" in o && "kind" in o) {
-    return raw as OrderApiEnvelope;
-  }
-  return undefined;
-}
-
-export async function postCloseTrade(tradeId: string): Promise<{
-  ok: boolean;
-  status: number;
-  envelope?: OrderApiEnvelope;
-  raw?: unknown;
-}> {
-  const res = await fetch(
-    `${getApiBaseUrl()}/api/v1/trade/api/v1/trade/close`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tradeId }),
-      credentials: "include",
-    },
-  );
-  const raw: unknown = await res.json().catch(() => undefined);
-  return {
-    ok: res.ok,
-    status: res.status,
-    envelope: parseOrderResponse(raw),
-    raw,
-  };
 }

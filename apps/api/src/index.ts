@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import { listenForResponse } from "./validators.ts/worker.ts";
+import { listenForResponse } from "./validators/worker.ts";
 import v1Router from "./routes/index.ts";
 
 const app = express();

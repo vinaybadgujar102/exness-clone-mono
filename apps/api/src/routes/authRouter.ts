@@ -4,13 +4,13 @@ import { Router, type Request, type Response } from "express";
 import type z from "zod";
 import { pending } from "..";
 import { prisma } from "../lib/prisma";
-import type { loginSchema } from "../validators.ts/authValidator";
+import type { loginSchema } from "../validators/authValidator";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 
 const authRouter = Router();
 
-authRouter.post("/api/v1/auth/login", async (req: Request, res: Response) => {
+authRouter.post("/login", async (req: Request, res: Response) => {
   const { email } = req.body as z.infer<typeof loginSchema>;
 
   const user = await prisma.user.findFirst({
@@ -23,8 +23,8 @@ authRouter.post("/api/v1/auth/login", async (req: Request, res: Response) => {
     return;
   }
 
-  const token = crypto.randomBytes(40).toHex();
-  const hashedToken = crypto.createHash(token).digest("hex");
+  const token = crypto.randomBytes(40).toString("hex");
+  const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
 
   await prisma.magicToken.deleteMany({
     where: {
@@ -40,7 +40,7 @@ authRouter.post("/api/v1/auth/login", async (req: Request, res: Response) => {
     },
   });
 
-  const link = `http://localhost:3000/api/v1/auth/signin/post?token:${createdToken}`;
+  const link = `http://localhost:3000/api/v1/auth/login/post?token=${token}`;
 
   return res.json({
     message: "Check your email for a sign-in link",
@@ -48,99 +48,100 @@ authRouter.post("/api/v1/auth/login", async (req: Request, res: Response) => {
   });
 });
 
-authRouter.get(
-  "/api/v1/auth/login/post",
-  async (req: Request, res: Response) => {
-    const { token: rawToken } = req.query;
-    if (!rawToken) {
-      return;
-    }
+authRouter.get("/login/post", async (req: Request, res: Response) => {
+  const { token: rawToken } = req.query;
+  if (!rawToken) {
+    return;
+  }
 
-    const hashedToken = crypto.createHash(rawToken.toString()).digest("hex");
-    const stored = await prisma.magicToken.findFirst({
-      where: {
-        hashedToken,
-      },
-    });
+  const hashedToken = crypto
+    .createHash("sha256")
+    .update(rawToken)
+    .digest("hex");
+  const stored = await prisma.magicToken.findFirst({
+    where: {
+      hashedToken,
+    },
+  });
 
-    if (!stored) {
-      return res.status(401).json({ error: "Invalid or expired link" });
-    }
+  if (!stored) {
+    return res.status(401).json({ error: "Invalid or expired link" });
+  }
 
-    if (stored.used) {
-      return res.status(401).json({ error: "This link has already been used" });
-    }
+  if (stored.used) {
+    return res.status(401).json({ error: "This link has already been used" });
+  }
 
-    // expired
-    if (stored.expiresAt < new Date()) {
-      await prisma.magicToken.delete({ where: { id: stored.id } });
-      return res
-        .status(401)
-        .json({ error: "This link has expired. Please request a new one." });
-    }
+  // expired
+  if (stored.expiresAt < new Date()) {
+    await prisma.magicToken.delete({ where: { id: stored.id } });
+    return res
+      .status(401)
+      .json({ error: "This link has expired. Please request a new one." });
+  }
 
-    const user = await prisma.user.findFirst({
-      where: {
-        id: stored.userId,
-      },
-    });
+  const user = await prisma.user.findFirst({
+    where: {
+      id: stored.userId,
+    },
+  });
 
-    if (!user) {
-      return res.status(401).json({ error: "User no exists" });
-    }
+  if (!user) {
+    return res.status(401).json({ error: "User no exists" });
+  }
 
-    await prisma.magicToken.update({
-      where: {
-        id: stored.id,
-      },
-      data: {
-        used: true,
-      },
-    });
+  await prisma.magicToken.update({
+    where: {
+      id: stored.id,
+    },
+    data: {
+      used: true,
+    },
+  });
 
-    const sessionToken = jwt.sign(
-      {
-        userId: stored.userId,
-      },
-      "SECRET",
-      {
-        expiresIn: "7d",
-      },
-    );
+  const sessionToken = jwt.sign(
+    {
+      userId: stored.userId,
+    },
+    "SECRET",
+    {
+      expiresIn: "7d",
+    },
+  );
 
-    res.cookie("refreshToken", sessionToken, {
-      sameSite: "strict",
-      httpOnly: true,
-      secure: true,
-      expires: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    });
+  res.cookie("sessionToken", sessionToken, {
+    sameSite: "strict",
+    httpOnly: true,
+    secure: true,
+    expires: new Date(Date.now() + 24 * 60 * 60 * 1000),
+  });
 
-    const requestId = crypto.randomUUID();
+  const requestId = crypto.randomUUID();
 
-    const promise = new Promise((resolve, reject) => {
-      pending.set(requestId, resolve);
-    });
+  const promise = new Promise((resolve, reject) => {
+    pending.set(requestId, resolve);
+  });
 
-    const payload: z.infer<typeof AddUserSchema> = {
-      kind: JOB_KINDS.ADD_USER,
-      requestId,
-      payload: {
-        email: user.email,
-      },
-    };
+  const payload: z.infer<typeof AddUserSchema> = {
+    kind: JOB_KINDS.ADD_USER,
+    requestId,
+    payload: {
+      email: user.email,
+    },
+  };
 
-    // create user in memory
-    await publisher.xAdd(QUEUES.SEND_STREAM, "*", {
-      data: JSON.stringify(payload),
-    });
+  // create user in memory
+  await publisher.xAdd(QUEUES.SEND_STREAM, "*", {
+    data: JSON.stringify(payload),
+  });
+  const response = await promise;
 
-    const response = await promise;
+  return res.json({
+    message: "logged in",
+  });
+});
 
-    return res.redirect(process.env.FRONTEND_URL!);
-  },
-);
-
-authRouter.post("/api/v1/auth/signup", async (req: Request, res: Response) => {
+authRouter.post("/signup", async (req: Request, res: Response) => {
   const { email } = req.body as z.infer<typeof loginSchema>;
 
   const user = await prisma.user.findFirst({
@@ -162,9 +163,8 @@ authRouter.post("/api/v1/auth/signup", async (req: Request, res: Response) => {
     },
   });
 
-  const rawMagicToken = crypto.randomBytes(40).toBase64();
+  const rawMagicToken = crypto.randomBytes(40).toHex();
   const hashedMagicToken = crypto.createHash(rawMagicToken).digest("hex");
-
   await prisma.magicToken.deleteMany({
     where: {
       userId: newUser.id,

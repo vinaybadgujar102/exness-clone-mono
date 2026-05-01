@@ -9,11 +9,11 @@ import {
 } from "@repo/types";
 import { publisher } from "@repo/redis";
 import type z from "zod";
-import { requestValidator } from "../validators.ts";
+import { requestValidator } from "../validators/index.ts";
 import {
   closeTradeRequest,
   openTradeRequest,
-} from "../validators.ts/tradeValidator";
+} from "../validators/tradeValidator.ts";
 
 const tradeRouter = Router();
 

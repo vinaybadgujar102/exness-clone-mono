@@ -149,3 +149,25 @@ export function getOpenTradesForUser(email: string) {
 
   return user.openTrades;
 }
+
+export function handleAddUser(email: string) {
+  const user = users.find((user) => user.email === email);
+  if (user) {
+    return {
+      success: true,
+      message: "USER_ALREADY_PRESENT",
+    };
+  }
+
+  const newUser = {
+    balance: 10000,
+    email,
+    openTrades: {},
+  };
+  users.push(newUser);
+
+  return {
+    success: true,
+    message: "USER_ADDED",
+  };
+}

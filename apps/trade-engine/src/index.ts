@@ -13,6 +13,7 @@ import {
   closeTrade,
   createTrade,
   getOpenTradesForUser,
+  handleAddUser,
   liquidateTrades,
 } from "./handlers";
 
@@ -81,6 +82,16 @@ async function process() {
         });
       } else if (data.kind === JOB_KINDS.GET_OPEN_TRADES) {
         const response = getOpenTradesForUser(data.payload.email);
+      } else if (data.kind === JOB_KINDS.ADD_USER) {
+        const response = handleAddUser(data.payload.email);
+        const payload = {
+          kind: JOB_KINDS.ORDER_RESPONSE,
+          requestId: data.requestId,
+          payload: response,
+        };
+        await publisher.XADD(QUEUES.RESPONSE_STREAM, "*", {
+          data: JSON.stringify(payload),
+        });
       }
     } catch (error) {
       continue;

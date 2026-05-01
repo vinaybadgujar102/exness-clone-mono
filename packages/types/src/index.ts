@@ -14,6 +14,7 @@ export enum JOB_KINDS {
   ORDER_RESPONSE = "ORDER_RESPONSE",
   CLOSE_ORDER = "CLOSE_ORDER",
   GET_OPEN_TRADES = "GET_OPEN_TRADES",
+  ADD_USER = "ADD_USER",
 }
 
 export const PriceTickSchema = z.object({
@@ -57,12 +58,21 @@ export const CloseOrderSchema = z.object({
   }),
 });
 
+export const AddUserSchema = z.object({
+  kind: z.literal(JOB_KINDS.ADD_USER),
+  requestId: z.string(),
+  payload: z.object({
+    email: z.string(),
+  }),
+});
+
 export const OrderResponseSchema = z.object({
   kind: z.literal(JOB_KINDS.ORDER_RESPONSE),
   requestId: z.string(),
   payload: z.object({
     success: z.boolean(),
     message: z.string(),
+    data: z.any().optional(),
   }),
 });
 
@@ -71,6 +81,7 @@ export const EventSchema = z.discriminatedUnion("kind", [
   CreateOrderSchema,
   CloseOrderSchema,
   PriceTickSchema,
+  AddUserSchema,
 ]);
 
 export enum QUEUES {

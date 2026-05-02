@@ -1,10 +1,32 @@
-import WebSocket from "ws";
+import WebSocket, { WebSocketServer } from "ws";
 
 import { constants } from "./constants";
 import { transform } from "./utils";
 import { current_price } from "./inMemoryStore";
 import { EVENT_KINDS, QUEUES } from "@repo/types";
 import { publisher } from "@repo/redis";
+
+/////////////////////////////////////////////////////////////
+const wss = new WebSocketServer({ port: 8080 });
+
+wss.on("connection", (ws) => {
+  ws.on("error", (error) => {
+    console.error("WebSocket error", error);
+  });
+
+  setInterval(() => {
+    wss.clients.forEach((client) => {
+      client.send(
+        JSON.stringify({
+          kind: EVENT_KINDS.PRICE_TICK,
+          payload: current_price,
+        }),
+      );
+    });
+  }, 1000);
+});
+
+/////////////////////////////////////////////////////////////
 
 const wsconnection = new WebSocket(constants.BACKPACK_URL);
 
@@ -29,7 +51,7 @@ wsconnection.on("message", (data) => {
 });
 
 setInterval(async () => {
-  console.log(current_price);
+  console.log("publishing price tick", current_price);
   await publisher.XADD(QUEUES.SEND_STREAM, "*", {
     data: JSON.stringify({
       kind: EVENT_KINDS.PRICE_TICK,

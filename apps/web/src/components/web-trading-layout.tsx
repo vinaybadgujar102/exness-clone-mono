@@ -1,47 +1,54 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { WebTradingChart } from "@/components/web-trading-chart";
 import { postLogout, postOpenTrade } from "@/lib/api";
+import { AssetSymbols, EVENT_KINDS } from "@repo/types";
 
 type Instrument = {
-  sym: string;
+  sym: AssetSymbols;
   bid: number;
   ask: number;
   up: boolean;
 };
 
-const INSTRUMENTS: Instrument[] = [
-  { sym: "BTC", bid: 97234.12, ask: 97256.88, up: true },
-  { sym: "XAU/USD", bid: 4591.42, ask: 4591.87, up: false },
-  { sym: "XAG/USD", bid: 32.38, ask: 32.41, up: true },
-  { sym: "ETH", bid: 3456.2, ask: 3457.1, up: true },
-  { sym: "USOIL", bid: 71.22, ask: 71.28, up: false },
-  { sym: "USD/JPY", bid: 149.82, ask: 149.86, up: true },
-  { sym: "EUR/USD", bid: 1.0842, ask: 1.0845, up: false },
-  { sym: "USTEC", bid: 21456.0, ask: 21462.0, up: true },
-];
+/** Stable row order in the instruments list (matches `AssetSymbols` pair). */
+const TRADABLE: AssetSymbols[] = [AssetSymbols.BTC, AssetSymbols.ETH];
+
+function initialQuotes(): Record<AssetSymbols, Pick<Instrument, "bid" | "ask" | "up">> {
+  return {
+    [AssetSymbols.BTC]: { bid: 0, ask: 0, up: true },
+    [AssetSymbols.ETH]: { bid: 0, ask: 0, up: true },
+  };
+}
 
 function fmt(n: number) {
-  if (n >= 1000 && n < 100000) return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  if (n >= 1000 && n < 100000)
+    return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
   if (n >= 100) return n.toFixed(2);
   if (n >= 1) return n.toFixed(4);
   return n.toFixed(5);
 }
 
-/** API `asset` enum maps only BTC/ETH instruments (see apps/api openTradeRequest). */
-function symbolToApiAsset(sym: string): "BTC_USDC" | "ETH_USDC" | null {
-  if (sym === "BTC") return "BTC_USDC";
-  if (sym === "ETH") return "ETH_USDC";
+/** API `asset` enum matches `AssetSymbols` values (see apps/api openTradeRequest). */
+function symbolToApiAsset(sym: AssetSymbols): "BTC_USDC" | "ETH_USDC" | null {
+  if (sym === AssetSymbols.BTC || sym === AssetSymbols.ETH) return sym;
   return null;
+}
+
+function displayShort(sym: AssetSymbols): string {
+  return sym.replace("_USDC", "");
 }
 
 export function WebTradingLayout() {
   const router = useRouter();
-  const [symbol, setSymbol] = useState("XAU/USD");
+  const [selectedAsset, setSelectedAsset] = useState<AssetSymbols>(
+    AssetSymbols.BTC,
+  );
+  const [quotes, setQuotes] = useState(initialQuotes);
   const [posTab, setPosTab] = useState<"open" | "closed">("open");
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [margin, setMargin] = useState(100);
@@ -49,17 +56,61 @@ export function WebTradingLayout() {
   const [tradeBusy, setTradeBusy] = useState(false);
   const [tradeMessage, setTradeMessage] = useState<string | null>(null);
 
-  const active = useMemo((): Instrument => {
-    const row = INSTRUMENTS.find((i) => i.sym === symbol);
-    if (row) return row;
-    return INSTRUMENTS.find((i) => i.sym === "XAU/USD") ?? INSTRUMENTS[0]!;
-  }, [symbol]);
+  useEffect(() => {
+    const url =
+      process.env.NEXT_PUBLIC_PRICE_WS_URL ?? "ws://localhost:8080";
+    const socket = new WebSocket(url);
 
-  const apiAsset = useMemo(() => symbolToApiAsset(symbol), [symbol]);
+    socket.onmessage = (event) => {
+      const data: unknown = JSON.parse(event.data as string);
+      if (
+        typeof data !== "object" ||
+        data === null ||
+        !("kind" in data) ||
+        !("payload" in data) ||
+        data.kind !== EVENT_KINDS.PRICE_TICK ||
+        typeof data.payload !== "object" ||
+        data.payload === null
+      ) {
+        return;
+      }
+
+      const payload = data.payload as Partial<
+        Record<AssetSymbols, { price: number; decimal?: number }>
+      >;
+
+      setQuotes((prev) => {
+        const next = { ...prev };
+        for (const sym of TRADABLE) {
+          const tick = payload[sym];
+          if (tick == null || typeof tick.price !== "number") continue;
+          const p = tick.price;
+          const oldBid = prev[sym].bid;
+          const up = oldBid === 0 ? true : p >= oldBid;
+          next[sym] = { bid: p, ask: p, up };
+        }
+        return next;
+      });
+    };
+
+    return () => {
+      socket.close();
+    };
+  }, []);
+
+  const active = useMemo((): Instrument => {
+    const q = quotes[selectedAsset];
+    return { sym: selectedAsset, ...q };
+  }, [quotes, selectedAsset]);
+
+  const apiAsset = useMemo(
+    () => symbolToApiAsset(selectedAsset),
+    [selectedAsset],
+  );
   const canPlaceApiTrade = apiAsset !== null;
 
   async function submitOpenTrade(side: "BUY" | "SELL") {
-    const asset = symbolToApiAsset(symbol);
+    const asset = symbolToApiAsset(selectedAsset);
     if (!asset || tradeBusy) return;
     if (margin <= 0 || leverage <= 0) {
       setTradeMessage("Set margin and leverage.");
@@ -100,28 +151,35 @@ export function WebTradingLayout() {
     <div className="flex h-dvh max-h-dvh flex-col bg-[#0f1115] text-[#e8ecf4]">
       {/* Top bar */}
       <header className="flex h-11 shrink-0 items-center gap-3 border-b border-[#2a2e39] px-2 sm:px-3">
-        <Link href="/" className="shrink-0 pl-1 text-sm font-bold tracking-tight text-[#ffd700]">
+        <Link
+          href="/"
+          className="shrink-0 pl-1 text-sm font-bold tracking-tight text-[#ffd700]"
+        >
           exness
         </Link>
         <div className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto sm:flex">
-          {["XAU/USD", "USOIL", "BTC", "EUR/USD"].map((t) => (
+          {TRADABLE.map((sym) => (
             <button
-              key={t}
+              key={sym}
               type="button"
-              onClick={() => setSymbol(t)}
+              onClick={() => setSelectedAsset(sym)}
               className={`shrink-0 rounded px-2.5 py-1 text-xs font-medium transition ${
-                symbol === t
+                selectedAsset === sym
                   ? "bg-[#1a1d26] text-white"
                   : "text-[#8b95a8] hover:bg-[#1a1d26]/80 hover:text-white"
               }`}
             >
-              {t}
+              {displayShort(sym)}
             </button>
           ))}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
-          <span className="hidden text-xs text-[#8b95a8] md:inline">Demo Standard</span>
-          <span className="text-xs font-medium tabular-nums">10,000.00 USD</span>
+          <span className="hidden text-xs text-[#8b95a8] md:inline">
+            Demo Standard
+          </span>
+          <span className="text-xs font-medium tabular-nums">
+            10,000.00 USD
+          </span>
           <button
             type="button"
             onClick={() => void onLogout()}
@@ -160,32 +218,43 @@ export function WebTradingLayout() {
               <span className="text-right">Bid</span>
               <span className="text-right">Ask</span>
             </div>
-            {INSTRUMENTS.map((row) => (
-              <button
-                key={row.sym}
-                type="button"
-                onClick={() => setSymbol(row.sym)}
-                className={`grid w-full grid-cols-[1fr_auto_auto] items-center gap-x-1 border-b border-[#1f232d] px-2 py-1.5 text-left transition hover:bg-[#1a1d26] ${
-                  symbol === row.sym ? "bg-[#1a1d26] ring-1 ring-inset ring-[#ffd700]/30" : ""
-                }`}
-              >
-                <span className="font-medium text-white">{row.sym}</span>
-                <span
-                  className={`rounded px-1.5 py-0.5 text-right font-mono tabular-nums ${
-                    row.up ? "bg-[#1a3d2e] text-[#26c281]" : "bg-[#3d1f24] text-[#ef5350]"
+            {TRADABLE.map((sym) => {
+              const row = quotes[sym];
+              return (
+                <button
+                  key={sym}
+                  type="button"
+                  onClick={() => setSelectedAsset(sym)}
+                  className={`grid w-full grid-cols-[1fr_auto_auto] items-center gap-x-1 border-b border-[#1f232d] px-2 py-1.5 text-left transition hover:bg-[#1a1d26] ${
+                    selectedAsset === sym
+                      ? "bg-[#1a1d26] ring-1 ring-inset ring-[#ffd700]/30"
+                      : ""
                   }`}
                 >
-                  {fmt(row.bid)}
-                </span>
-                <span
-                  className={`rounded px-1.5 py-0.5 text-right font-mono tabular-nums ${
-                    row.up ? "bg-[#1a3d2e] text-[#26c281]" : "bg-[#3d1f24] text-[#ef5350]"
-                  }`}
-                >
-                  {fmt(row.ask)}
-                </span>
-              </button>
-            ))}
+                  <span className="font-medium text-white">
+                    {displayShort(sym)}
+                  </span>
+                  <span
+                    className={`rounded px-1.5 py-0.5 text-right font-mono tabular-nums ${
+                      row.up
+                        ? "bg-[#1a3d2e] text-[#26c281]"
+                        : "bg-[#3d1f24] text-[#ef5350]"
+                    }`}
+                  >
+                    {fmt(row.bid)}
+                  </span>
+                  <span
+                    className={`rounded px-1.5 py-0.5 text-right font-mono tabular-nums ${
+                      row.up
+                        ? "bg-[#1a3d2e] text-[#26c281]"
+                        : "bg-[#3d1f24] text-[#ef5350]"
+                    }`}
+                  >
+                    {fmt(row.ask)}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </aside>
 
@@ -193,7 +262,9 @@ export function WebTradingLayout() {
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col border-b border-[#2a2e39] lg:border-b-0">
             <div className="flex shrink-0 items-center gap-2 border-b border-[#2a2e39] px-2 py-1.5 text-[11px] text-[#8b95a8]">
-              <span className="font-medium text-white">Gold vs US Dollar · 1</span>
+              <span className="font-medium text-white">
+                Gold vs US Dollar · 1
+              </span>
               <span className="rounded bg-[#1a1d26] px-1.5 py-0.5">1m</span>
               <span className="hidden sm:inline">Candles</span>
               <span className="ml-auto hidden rounded border border-[#2a2e39] px-2 py-0.5 sm:inline">
@@ -257,10 +328,12 @@ export function WebTradingLayout() {
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-[#2a2e39] bg-[#14171f] px-3 py-1.5 text-[10px] text-[#8b95a8]">
               <span>
-                Equity <span className="text-white tabular-nums">10,000.00 USD</span>
+                Equity{" "}
+                <span className="text-white tabular-nums">10,000.00 USD</span>
               </span>
               <span>
-                Balance <span className="text-white tabular-nums">10,000.00 USD</span>
+                Balance{" "}
+                <span className="text-white tabular-nums">10,000.00 USD</span>
               </span>
               <span>
                 Margin <span className="text-white tabular-nums">0.00 USD</span>
@@ -272,12 +345,14 @@ export function WebTradingLayout() {
         {/* Order panel */}
         <aside className="flex w-full shrink-0 flex-col border-t border-[#2a2e39] lg:w-[260px] lg:border-l lg:border-t-0">
           <div className="border-b border-[#2a2e39] px-3 py-2 text-center text-sm font-semibold">
-            {symbol}
+            {displayShort(selectedAsset)}
           </div>
           {!canPlaceApiTrade && (
             <p className="border-b border-[#2a2e39] px-3 py-2 text-center text-[10px] leading-snug text-[#8b95a8]">
-              Open trade API accepts <span className="text-[#e8ecf4]">BTC_USDC</span> or{" "}
-              <span className="text-[#e8ecf4]">ETH_USDC</span>. Select BTC or ETH to place an order.
+              Open trade API accepts{" "}
+              <span className="text-[#e8ecf4]">BTC_USDC</span> or{" "}
+              <span className="text-[#e8ecf4]">ETH_USDC</span>. Select BTC or
+              ETH to place an order.
             </p>
           )}
           <div className="grid grid-cols-2 gap-2 p-3">
@@ -287,7 +362,9 @@ export function WebTradingLayout() {
               onClick={() => void submitOpenTrade("SELL")}
               className="flex flex-col items-center rounded-lg bg-[#3d1f24] py-3 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <span className="text-[10px] font-medium uppercase text-[#fca5a5]">Sell</span>
+              <span className="text-[10px] font-medium uppercase text-[#fca5a5]">
+                Sell
+              </span>
               <span className="mt-1 font-mono text-lg font-semibold tabular-nums text-white">
                 {fmt(active.bid)}
               </span>
@@ -298,7 +375,9 @@ export function WebTradingLayout() {
               onClick={() => void submitOpenTrade("BUY")}
               className="flex flex-col items-center rounded-lg bg-[#1e3a5f] py-3 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <span className="text-[10px] font-medium uppercase text-[#93c5fd]">Buy</span>
+              <span className="text-[10px] font-medium uppercase text-[#93c5fd]">
+                Buy
+              </span>
               <span className="mt-1 font-mono text-lg font-semibold tabular-nums text-white">
                 {fmt(active.ask)}
               </span>
@@ -310,9 +389,13 @@ export function WebTradingLayout() {
               <div className="bg-[#2196f3]" style={{ width: "36%" }} />
             </div>
           </div>
-          <p className="px-3 pb-2 text-center text-[10px] text-[#6b7280]">64% sell · 36% buy</p>
+          <p className="px-3 pb-2 text-center text-[10px] text-[#6b7280]">
+            64% sell · 36% buy
+          </p>
           <div className="border-y border-[#2a2e39]">
-            <div className="py-2 text-center text-xs font-medium text-white">Market</div>
+            <div className="py-2 text-center text-xs font-medium text-white">
+              Market
+            </div>
             <p className="border-t border-[#2a2e39] px-3 py-1.5 text-center text-[10px] text-[#6b7280]">
               <span
                 title="Coming soon"
@@ -342,7 +425,9 @@ export function WebTradingLayout() {
                 <label htmlFor="order-leverage" className="text-[#8b95a8]">
                   Leverage
                 </label>
-                <span className="font-mono text-[11px] tabular-nums text-white">{leverage}×</span>
+                <span className="font-mono text-[11px] tabular-nums text-white">
+                  {leverage}×
+                </span>
               </div>
               <input
                 id="order-leverage"
@@ -359,14 +444,18 @@ export function WebTradingLayout() {
                 min={1}
                 step={1}
                 value={leverage}
-                onChange={(e) => setLeverage(Math.max(1, Number(e.target.value) || 1))}
+                onChange={(e) =>
+                  setLeverage(Math.max(1, Number(e.target.value) || 1))
+                }
                 className="mt-2 w-full rounded border border-[#2a2e39] bg-[#14171f] px-2 py-1.5 font-mono text-[11px] tabular-nums text-white outline-none focus:border-[#3d4454]"
               />
             </div>
             {tradeMessage && (
               <p
                 className={`text-center text-[11px] ${
-                  tradeMessage === "Order sent." ? "text-[#26c281]" : "text-[#ef5350]"
+                  tradeMessage === "Order sent."
+                    ? "text-[#26c281]"
+                    : "text-[#ef5350]"
                 }`}
               >
                 {tradeMessage}

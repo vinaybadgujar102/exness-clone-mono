@@ -40,7 +40,6 @@ export const CreateOrderSchema = z.object({
     email: z.email(),
     trade: z.object({
       id: z.string(),
-      quantity: z.number(),
       side: z.enum(["BUY", "SELL"]),
       margin: z.number(),
       leverage: z.number(),

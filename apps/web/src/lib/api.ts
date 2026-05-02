@@ -35,6 +35,53 @@ export async function postSignup(email: string): Promise<LoginResponse> {
   return (await res.json()) as LoginResponse;
 }
 
+export async function postLogout(): Promise<void> {
+  await fetch(`${getApiBaseUrl()}/api/v1/auth/logout`, {
+    method: "POST",
+    credentials: "include",
+  });
+}
+
+/** Matches `openTradeRequest` in apps/api/src/validators/tradeValidator.ts */
+export type OpenTradePayload = {
+  asset: "BTC_USDC" | "ETH_USDC";
+  side: "BUY" | "SELL";
+  margin: number;
+  leverage: number;
+};
+
+/** POST /api/v1/trade/trade — requires auth cookie */
+export async function postOpenTrade(body: OpenTradePayload): Promise<unknown> {
+  const res = await fetch(`${getApiBaseUrl()}/api/v1/trade/trade`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    credentials: "include",
+  });
+
+  let data: unknown = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+
+  if (!res.ok) {
+    const msg = extractErrorMessage(data) ?? `Request failed (${res.status})`;
+    throw new Error(msg);
+  }
+
+  return data;
+}
+
+function extractErrorMessage(data: unknown): string | undefined {
+  if (!data || typeof data !== "object") return undefined;
+  const o = data as Record<string, unknown>;
+  if (typeof o.error === "string") return o.error;
+  if (typeof o.message === "string") return o.message;
+  return undefined;
+}
+
 /** Complete magic-link step; sets session cookie when CORS + cookie policy allow. */
 export async function getLoginPost(token: string): Promise<Response> {
   const q = encodeURIComponent(token);

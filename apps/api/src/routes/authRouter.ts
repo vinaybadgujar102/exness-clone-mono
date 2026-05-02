@@ -151,6 +151,16 @@ authRouter.get("/login/post", async (req: Request, res: Response) => {
   res.redirect("http://localhost:3001/webtrading");
 });
 
+authRouter.post("/logout", (req: Request, res: Response) => {
+  res.clearCookie("sessionToken", {
+    sameSite: "strict",
+    httpOnly: true,
+    secure: true,
+  });
+
+  return res.json({ message: "Logged out" });
+});
+
 authRouter.post("/signup", async (req: Request, res: Response) => {
   const { email } = req.body as z.infer<typeof loginSchema>;
 

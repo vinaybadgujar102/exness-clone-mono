@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { WebTradingChart } from "@/components/web-trading-chart";
+import { postLogout, postOpenTrade } from "@/lib/api";
 
 type Instrument = {
   sym: string;
@@ -30,16 +32,69 @@ function fmt(n: number) {
   return n.toFixed(5);
 }
 
+/** API `asset` enum maps only BTC/ETH instruments (see apps/api openTradeRequest). */
+function symbolToApiAsset(sym: string): "BTC_USDC" | "ETH_USDC" | null {
+  if (sym === "BTC") return "BTC_USDC";
+  if (sym === "ETH") return "ETH_USDC";
+  return null;
+}
+
 export function WebTradingLayout() {
+  const router = useRouter();
   const [symbol, setSymbol] = useState("XAU/USD");
-  const [posTab, setPosTab] = useState<"open" | "pending" | "closed">("open");
-  const [orderTab, setOrderTab] = useState<"market" | "pending">("market");
+  const [posTab, setPosTab] = useState<"open" | "closed">("open");
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [margin, setMargin] = useState(100);
+  const [leverage, setLeverage] = useState(10);
+  const [tradeBusy, setTradeBusy] = useState(false);
+  const [tradeMessage, setTradeMessage] = useState<string | null>(null);
 
   const active = useMemo((): Instrument => {
     const row = INSTRUMENTS.find((i) => i.sym === symbol);
     if (row) return row;
     return INSTRUMENTS.find((i) => i.sym === "XAU/USD") ?? INSTRUMENTS[0]!;
   }, [symbol]);
+
+  const apiAsset = useMemo(() => symbolToApiAsset(symbol), [symbol]);
+  const canPlaceApiTrade = apiAsset !== null;
+
+  async function submitOpenTrade(side: "BUY" | "SELL") {
+    const asset = symbolToApiAsset(symbol);
+    if (!asset || tradeBusy) return;
+    if (margin <= 0 || leverage <= 0) {
+      setTradeMessage("Set margin and leverage.");
+      return;
+    }
+
+    setTradeBusy(true);
+    setTradeMessage(null);
+    try {
+      await postOpenTrade({
+        asset,
+        side,
+        margin,
+        leverage,
+      });
+      setTradeMessage("Order sent.");
+    } catch (e) {
+      setTradeMessage(e instanceof Error ? e.message : "Order failed");
+    } finally {
+      setTradeBusy(false);
+    }
+  }
+
+  async function onLogout() {
+    if (isLoggingOut) return;
+
+    setIsLoggingOut(true);
+    try {
+      await postLogout();
+    } finally {
+      router.replace("/login");
+      router.refresh();
+      setIsLoggingOut(false);
+    }
+  }
 
   return (
     <div className="flex h-dvh max-h-dvh flex-col bg-[#0f1115] text-[#e8ecf4]">
@@ -67,6 +122,14 @@ export function WebTradingLayout() {
         <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
           <span className="hidden text-xs text-[#8b95a8] md:inline">Demo Standard</span>
           <span className="text-xs font-medium tabular-nums">10,000.00 USD</span>
+          <button
+            type="button"
+            onClick={() => void onLogout()}
+            disabled={isLoggingOut}
+            className="rounded border border-[#2a2e39] px-2.5 py-1 text-xs font-medium text-[#e8ecf4] transition hover:bg-[#1a1d26] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isLoggingOut ? "Logging out..." : "Logout"}
+          </button>
           <button
             type="button"
             className="hidden rounded border border-[#ffd700] px-2.5 py-1 text-xs font-medium text-[#ffd700] transition hover:bg-[#ffd700]/10 sm:block"
@@ -162,7 +225,6 @@ export function WebTradingLayout() {
               {(
                 [
                   ["open", "Open"],
-                  ["pending", "Pending"],
                   ["closed", "Closed"],
                 ] as const
               ).map(([id, label]) => (
@@ -212,10 +274,18 @@ export function WebTradingLayout() {
           <div className="border-b border-[#2a2e39] px-3 py-2 text-center text-sm font-semibold">
             {symbol}
           </div>
+          {!canPlaceApiTrade && (
+            <p className="border-b border-[#2a2e39] px-3 py-2 text-center text-[10px] leading-snug text-[#8b95a8]">
+              Open trade API accepts <span className="text-[#e8ecf4]">BTC_USDC</span> or{" "}
+              <span className="text-[#e8ecf4]">ETH_USDC</span>. Select BTC or ETH to place an order.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-2 p-3">
             <button
               type="button"
-              className="flex flex-col items-center rounded-lg bg-[#3d1f24] py-3 transition hover:brightness-110"
+              disabled={!canPlaceApiTrade || tradeBusy}
+              onClick={() => void submitOpenTrade("SELL")}
+              className="flex flex-col items-center rounded-lg bg-[#3d1f24] py-3 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <span className="text-[10px] font-medium uppercase text-[#fca5a5]">Sell</span>
               <span className="mt-1 font-mono text-lg font-semibold tabular-nums text-white">
@@ -224,7 +294,9 @@ export function WebTradingLayout() {
             </button>
             <button
               type="button"
-              className="flex flex-col items-center rounded-lg bg-[#1e3a5f] py-3 transition hover:brightness-110"
+              disabled={!canPlaceApiTrade || tradeBusy}
+              onClick={() => void submitOpenTrade("BUY")}
+              className="flex flex-col items-center rounded-lg bg-[#1e3a5f] py-3 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <span className="text-[10px] font-medium uppercase text-[#93c5fd]">Buy</span>
               <span className="mt-1 font-mono text-lg font-semibold tabular-nums text-white">
@@ -239,47 +311,67 @@ export function WebTradingLayout() {
             </div>
           </div>
           <p className="px-3 pb-2 text-center text-[10px] text-[#6b7280]">64% sell · 36% buy</p>
-          <div className="flex border-y border-[#2a2e39]">
-            <button
-              type="button"
-              onClick={() => setOrderTab("market")}
-              className={`flex-1 py-2 text-xs font-medium ${
-                orderTab === "market" ? "border-b-2 border-white text-white" : "text-[#6b7280]"
-              }`}
-            >
-              Market
-            </button>
-            <button
-              type="button"
-              onClick={() => setOrderTab("pending")}
-              className={`flex-1 py-2 text-xs font-medium ${
-                orderTab === "pending" ? "border-b-2 border-white text-white" : "text-[#6b7280]"
-              }`}
-            >
-              Pending
-            </button>
+          <div className="border-y border-[#2a2e39]">
+            <div className="py-2 text-center text-xs font-medium text-white">Market</div>
+            <p className="border-t border-[#2a2e39] px-3 py-1.5 text-center text-[10px] text-[#6b7280]">
+              <span
+                title="Coming soon"
+                className="cursor-help underline decoration-dotted decoration-[#6b7280] underline-offset-2"
+              >
+                Pending order
+              </span>
+            </p>
           </div>
           <div className="space-y-3 p-3 text-xs">
             <div>
-              <span className="text-[#8b95a8]">Volume</span>
-              <div className="mt-1 flex items-center gap-2">
-                <button type="button" className="rounded border border-[#2a2e39] px-2 py-1 text-lg leading-none">
-                  −
-                </button>
-                <span className="flex-1 rounded border border-[#2a2e39] bg-[#14171f] py-2 text-center font-mono tabular-nums">
-                  0.01 Lots
-                </span>
-                <button type="button" className="rounded border border-[#2a2e39] px-2 py-1 text-lg leading-none">
-                  +
-                </button>
+              <label htmlFor="order-margin" className="text-[#8b95a8]">
+                Margin (USD)
+              </label>
+              <input
+                id="order-margin"
+                type="number"
+                min={1}
+                step={1}
+                value={margin}
+                onChange={(e) => setMargin(Number(e.target.value))}
+                className="mt-1 w-full rounded border border-[#2a2e39] bg-[#14171f] px-2 py-2 font-mono tabular-nums text-white outline-none focus:border-[#3d4454]"
+              />
+            </div>
+            <div>
+              <div className="flex items-baseline justify-between gap-2">
+                <label htmlFor="order-leverage" className="text-[#8b95a8]">
+                  Leverage
+                </label>
+                <span className="font-mono text-[11px] tabular-nums text-white">{leverage}×</span>
               </div>
+              <input
+                id="order-leverage"
+                type="range"
+                min={1}
+                max={100}
+                step={1}
+                value={leverage}
+                onChange={(e) => setLeverage(Number(e.target.value))}
+                className="mt-2 w-full accent-[#ffd700]"
+              />
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={leverage}
+                onChange={(e) => setLeverage(Math.max(1, Number(e.target.value) || 1))}
+                className="mt-2 w-full rounded border border-[#2a2e39] bg-[#14171f] px-2 py-1.5 font-mono text-[11px] tabular-nums text-white outline-none focus:border-[#3d4454]"
+              />
             </div>
-            <div className="rounded border border-[#2a2e39] bg-[#14171f] px-3 py-2 text-[#6b7280]">
-              Take profit — <span className="text-white">Not set</span>
-            </div>
-            <div className="rounded border border-[#2a2e39] bg-[#14171f] px-3 py-2 text-[#6b7280]">
-              Stop loss — <span className="text-white">Not set</span>
-            </div>
+            {tradeMessage && (
+              <p
+                className={`text-center text-[11px] ${
+                  tradeMessage === "Order sent." ? "text-[#26c281]" : "text-[#ef5350]"
+                }`}
+              >
+                {tradeMessage}
+              </p>
+            )}
           </div>
         </aside>
       </div>

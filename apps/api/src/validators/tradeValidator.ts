@@ -3,7 +3,6 @@ import { AssetSymbols } from "@repo/types";
 
 export const openTradeRequest = z.object({
   asset: z.enum(AssetSymbols),
-  quantity: z.number(),
   side: z.enum(["BUY", "SELL"]),
   margin: z.number(),
   leverage: z.number(),

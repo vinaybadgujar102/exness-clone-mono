@@ -46,7 +46,7 @@ tradeRouter.post(
   "/trade",
   requestValidator(openTradeRequest),
   async (req: Request, res: Response) => {
-    const { asset, quantity, margin, side, leverage } = req.body as z.infer<
+    const { asset, margin, side, leverage } = req.body as z.infer<
       typeof openTradeRequest
     >;
     const tradeId = crypto.randomUUID();
@@ -60,7 +60,6 @@ tradeRouter.post(
         email: "vinaybadgujar8@gmail.com",
         trade: {
           id: tradeId,
-          quantity,
           side,
           margin,
           leverage,

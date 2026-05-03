@@ -7,6 +7,7 @@ export enum AssetSymbols {
 
 export enum EVENT_KINDS {
   PRICE_TICK = "PRICE_TICK",
+  BID_ASK_TICK = "BID_ASK_TICK",
 }
 
 export enum JOB_KINDS {
@@ -75,11 +76,20 @@ export const OrderResponseSchema = z.object({
   }),
 });
 
+export const BidAskTickSchema = z.object({
+  kind: z.literal(EVENT_KINDS.BID_ASK_TICK),
+  payload: z.record(
+    z.enum(AssetSymbols),
+    z.object({ bid: z.number(), ask: z.number(), decimal: z.number() }),
+  ),
+});
+
 export const EventSchema = z.discriminatedUnion("kind", [
   GetOpenOrdersSchema,
   CreateOrderSchema,
   CloseOrderSchema,
   PriceTickSchema,
+  BidAskTickSchema,
   AddUserSchema,
 ]);
 
@@ -100,9 +110,19 @@ export interface BookTicker {
   T: number;
 }
 
-export interface AssetPrice {
-  ticket: AssetSymbols;
+export type BidAskPricePricePoller = Partial<
+  Record<AssetSymbols, { bid: number; ask: number; decimal: number }>
+>;
+
+export interface AssetMidPrice {
+  ticker: AssetSymbols;
   price: number;
+}
+
+export interface AssetBidAskPrice {
+  ticker: AssetSymbols;
+  bid: number;
+  ask: number;
 }
 
 export interface CurrentBuySellPrice {

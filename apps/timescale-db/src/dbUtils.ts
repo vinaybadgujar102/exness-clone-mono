@@ -1,4 +1,4 @@
-import type { AssetPrice, AssetSymbols } from "@repo/types";
+import type { AssetMidPrice, AssetSymbols } from "@repo/types";
 import { pool } from "./db";
 
 export async function initDB() {

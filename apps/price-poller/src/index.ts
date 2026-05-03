@@ -1,9 +1,9 @@
 import WebSocket, { WebSocketServer } from "ws";
 
 import { constants } from "./constants";
-import { transform } from "./utils";
-import { current_price } from "./inMemoryStore";
-import { EVENT_KINDS, QUEUES } from "@repo/types";
+import { transform, transformToBidAsk } from "./utils";
+import { current_price_bid_ask, current_price_mid } from "./inMemoryStore";
+import { AssetSymbols, EVENT_KINDS, QUEUES } from "@repo/types";
 import { publisher } from "@repo/redis";
 
 /////////////////////////////////////////////////////////////
@@ -18,8 +18,8 @@ wss.on("connection", (ws) => {
     wss.clients.forEach((client) => {
       client.send(
         JSON.stringify({
-          kind: EVENT_KINDS.PRICE_TICK,
-          payload: current_price,
+          kind: EVENT_KINDS.BID_ASK_TICK,
+          payload: current_price_bid_ask,
         }),
       );
     });
@@ -43,19 +43,26 @@ wsconnection.on("open", () => {
 wsconnection.on("message", (data) => {
   const recievedData = JSON.parse(data.toString());
   const transformedData = transform(recievedData.data);
+  const transformedBidAskData = transformToBidAsk(recievedData.data);
 
-  current_price[transformedData.ticket] = {
-    ...current_price[transformedData.ticket],
+  current_price_mid[transformedData.ticker] = {
+    ...current_price_mid[transformedData.ticker],
     price: transformedData.price,
+  };
+
+  current_price_bid_ask[transformedBidAskData.ticker] = {
+    ...current_price_bid_ask[transformedBidAskData.ticker],
+    bid: transformedBidAskData.bid,
+    ask: transformedBidAskData.ask,
   };
 });
 
 setInterval(async () => {
-  console.log("publishing price tick", current_price);
+  console.log("publishing price tick", current_price_mid);
   await publisher.XADD(QUEUES.SEND_STREAM, "*", {
     data: JSON.stringify({
       kind: EVENT_KINDS.PRICE_TICK,
-      payload: current_price,
+      payload: current_price_mid,
     }),
   });
 }, 5000);

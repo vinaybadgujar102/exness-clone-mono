@@ -10,13 +10,13 @@ The root `README.md` is still the generic Turborepo starter text; this file refl
 
 ## Tooling
 
-| Item | Value |
-|------|--------|
-| Package manager | **Bun** `1.3.5` (`packageManager` in root `package.json`) |
-| Monorepo orchestration | **Turborepo** (`turbo.json`) |
-| Workspaces | `apps/*`, `packages/*` |
-| TypeScript | `5.9.2` at root; apps use `peerDependencies: typescript ^5` |
-| Node engines | `>=18` (root) |
+| Item                   | Value                                                       |
+| ---------------------- | ----------------------------------------------------------- |
+| Package manager        | **Bun** `1.3.5` (`packageManager` in root `package.json`)   |
+| Monorepo orchestration | **Turborepo** (`turbo.json`)                                |
+| Workspaces             | `apps/*`, `packages/*`                                      |
+| TypeScript             | `5.9.2` at root; apps use `peerDependencies: typescript ^5` |
+| Node engines           | `>=18` (root)                                               |
 
 Root scripts:
 
@@ -133,7 +133,7 @@ Generated / vendor-style paths under `apps/api/generated/prisma/` come from Pris
 
 ### `@repo/types` (`packages/types`)
 
-- **Exports**: `src/index.ts` — `AssetSymbols`, `EVENT_KINDS`, `JOB_KINDS`, `QUEUES`, Zod discriminated `EventSchema`, job/response schemas, and small TS interfaces (`BookTicker`, `AssetPrice`, etc.).
+- **Exports**: `src/index.ts` — `AssetSymbols`, `EVENT_KINDS`, `JOB_KINDS`, `QUEUES`, Zod discriminated `EventSchema`, job/response schemas, and small TS interfaces (`BookTicker`, `AssetMidPrice`, etc.).
 - **Dependency**: `zod`.
 
 ### `@repo/redis` (`packages/redis`)
@@ -152,11 +152,11 @@ Generated / vendor-style paths under `apps/api/generated/prisma/` come from Pris
 
 ## Shared event model (summary)
 
-| `kind` / enum | Producer | Main consumers |
-|---------------|----------|----------------|
-| `PRICE_TICK` | `price-poller`, (could be others) | `trade-engine`, `timescale-db` |
-| `CREATE_ORDER`, `CLOSE_ORDER`, `GET_OPEN_TRADES`, `ADD_USER` | `api` | `trade-engine` |
-| `ORDER_RESPONSE` | `trade-engine` | `api` (`validators/worker.ts`) |
+| `kind` / enum                                                | Producer                          | Main consumers                 |
+| ------------------------------------------------------------ | --------------------------------- | ------------------------------ |
+| `PRICE_TICK`                                                 | `price-poller`, (could be others) | `trade-engine`, `timescale-db` |
+| `CREATE_ORDER`, `CLOSE_ORDER`, `GET_OPEN_TRADES`, `ADD_USER` | `api`                             | `trade-engine`                 |
+| `ORDER_RESPONSE`                                             | `trade-engine`                    | `api` (`validators/worker.ts`) |
 
 ## Local development checklist
 
@@ -185,4 +185,4 @@ Several apps and packages include **`CLAUDE.md`** files with project-local guida
 
 ---
 
-*Last reviewed against the repository layout as of the session that added this file (May 2026).*
+_Last reviewed against the repository layout as of the session that added this file (May 2026)._

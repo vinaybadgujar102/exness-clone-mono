@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { WebTradingChart } from "@/components/web-trading-chart";
 import { postLogout, postOpenTrade } from "@/lib/api";
-import { AssetSymbols, EVENT_KINDS } from "@repo/types";
+import { AssetSymbols, BidAskTickSchema } from "@repo/types";
 
 type Instrument = {
   sym: AssetSymbols;
@@ -62,32 +62,27 @@ export function WebTradingLayout() {
     const socket = new WebSocket(url);
 
     socket.onmessage = (event) => {
-      const data: unknown = JSON.parse(event.data as string);
-      if (
-        typeof data !== "object" ||
-        data === null ||
-        !("kind" in data) ||
-        !("payload" in data) ||
-        data.kind !== EVENT_KINDS.PRICE_TICK ||
-        typeof data.payload !== "object" ||
-        data.payload === null
-      ) {
+      let raw: unknown;
+      try {
+        raw = JSON.parse(event.data as string);
+      } catch {
         return;
       }
 
-      const payload = data.payload as Partial<
-        Record<AssetSymbols, { price: number; decimal?: number }>
-      >;
+      const parsed = BidAskTickSchema.safeParse(raw);
+      if (!parsed.success) return;
+
+      const { payload } = parsed.data;
 
       setQuotes((prev) => {
         const next = { ...prev };
         for (const sym of TRADABLE) {
           const tick = payload[sym];
-          if (tick == null || typeof tick.price !== "number") continue;
-          const p = tick.price;
+          if (tick == null) continue;
+          const { bid, ask } = tick;
           const oldBid = prev[sym].bid;
-          const up = oldBid === 0 ? true : p >= oldBid;
-          next[sym] = { bid: p, ask: p, up };
+          const up = oldBid === 0 ? true : bid >= oldBid;
+          next[sym] = { bid, ask, up };
         }
         return next;
       });

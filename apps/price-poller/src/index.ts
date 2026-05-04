@@ -3,8 +3,9 @@ import WebSocket, { WebSocketServer } from "ws";
 import { constants } from "./constants";
 import { transform, transformToBidAsk } from "./utils";
 import { current_price_bid_ask, current_price_mid } from "./inMemoryStore";
-import { AssetSymbols, EVENT_KINDS, QUEUES } from "@repo/types";
+import { EVENT_KINDS, QUEUES } from "@repo/types";
 import { publisher } from "@repo/redis";
+import { binanceSubscribeDataSchema } from "./types";
 
 /////////////////////////////////////////////////////////////
 const wss = new WebSocketServer({ port: 8080 });
@@ -41,8 +42,10 @@ wsconnection.on("open", () => {
 });
 
 wsconnection.on("message", (data) => {
-  const recievedData = JSON.parse(data.toString());
-  if (recievedData.stream) {
+  const parsedData = JSON.parse(data.toString());
+  const recievedData = binanceSubscribeDataSchema.parse(parsedData);
+
+  if ("stream" in recievedData) {
     const transformedData = transform(recievedData.data);
     const transformedBidAskData = transformToBidAsk(recievedData.data);
 

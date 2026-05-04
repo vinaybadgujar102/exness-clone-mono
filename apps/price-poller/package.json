@@ -14,9 +14,10 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@repo/redis": "workspace:*",
+    "@repo/types": "workspace:*",
     "@types/ws": "^8.18.1",
     "ws": "^8.20.0",
-    "@repo/types": "workspace:*",
-    "@repo/redis": "workspace:*"
+    "zod": "^4.4.3"
   }
 }

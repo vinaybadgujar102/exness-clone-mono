@@ -119,7 +119,7 @@ Generated / vendor-style paths under `apps/api/generated/prisma/` come from Pris
 
 ### `apps/price-poller`
 
-- **Entry**: `src/index.ts` — WebSocket client to `wss://ws.backpack.exchange/` (`constants.ts`), subscribes to `bookTicker.BTC_USDC` / `bookTicker.ETH_USDC`.
+- **Entry**: `src/index.ts` — WebSocket client to `wss://ws.backpack.exchange/` (`constants.ts`), subscribes to `bookTicker.BTCUSDT` / `bookTicker.ETHUSDT`.
 - **Behavior**: Maintains `inMemoryStore`; every 5s publishes `PRICE_TICK` JSON to `QUEUES.SEND_STREAM`.
 - **Dependencies**: `ws`, `@repo/redis`, `@repo/types`.
 

@@ -28,12 +28,12 @@ wss.on("connection", (ws) => {
 
 /////////////////////////////////////////////////////////////
 
-const wsconnection = new WebSocket(constants.BACKPACK_URL);
+const wsconnection = new WebSocket(constants.BINANCE_URL);
 
 const subscribe = {
   method: "SUBSCRIBE",
-  params: ["bookTicker.BTC_USDC", "bookTicker.ETH_USDC"],
-  id: 2,
+  params: ["btcusdt@aggTrade", "ethusdt@aggTrade"],
+  id: 1,
 };
 
 wsconnection.on("open", () => {
@@ -42,19 +42,21 @@ wsconnection.on("open", () => {
 
 wsconnection.on("message", (data) => {
   const recievedData = JSON.parse(data.toString());
-  const transformedData = transform(recievedData.data);
-  const transformedBidAskData = transformToBidAsk(recievedData.data);
+  if (recievedData.stream) {
+    const transformedData = transform(recievedData.data);
+    const transformedBidAskData = transformToBidAsk(recievedData.data);
 
-  current_price_mid[transformedData.ticker] = {
-    ...current_price_mid[transformedData.ticker],
-    price: transformedData.price,
-  };
+    current_price_mid[transformedData.ticker] = {
+      ...current_price_mid[transformedData.ticker],
+      price: transformedData.price,
+    };
 
-  current_price_bid_ask[transformedBidAskData.ticker] = {
-    ...current_price_bid_ask[transformedBidAskData.ticker],
-    bid: transformedBidAskData.bid,
-    ask: transformedBidAskData.ask,
-  };
+    current_price_bid_ask[transformedBidAskData.ticker] = {
+      ...current_price_bid_ask[transformedBidAskData.ticker],
+      bid: transformedBidAskData.bid,
+      ask: transformedBidAskData.ask,
+    };
+  }
 });
 
 setInterval(async () => {

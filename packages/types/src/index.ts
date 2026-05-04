@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 export enum AssetSymbols {
-  ETH = "ETH_USDC",
-  BTC = "BTC_USDC",
+  ETH = "ETHUSDT",
+  BTC = "BTCUSDT",
 }
 
 export enum EVENT_KINDS {
@@ -102,16 +102,19 @@ export interface BookTicker {
   e: string;
   E: number;
   s: string;
-  a: string;
-  A: string;
-  b: string;
-  B: string;
-  u: string;
+  a: number;
+  p: string; // price
+  q: string;
+  f: number;
+  l: number;
   T: number;
+  m: boolean;
+  M: boolean;
 }
 
-export type BidAskPricePricePoller = Partial<
-  Record<AssetSymbols, { bid: number; ask: number; decimal: number }>
+export type BidAskPricePricePoller = Record<
+  AssetSymbols,
+  { bid: number; ask: number; decimal: number }
 >;
 
 export interface AssetMidPrice {

@@ -37,21 +37,25 @@ async function process() {
       if (!raw) continue;
       const parsed = JSON.parse(raw);
       const data = EventSchema.parse(parsed);
-      if (data.kind === EVENT_KINDS.PRICE_TICK) {
+
+      // update prices
+      if (data.kind === EVENT_KINDS.BID_ASK_TICK) {
         const payload = data.payload;
-        currentAssetPrices.BTC_USDC = {
-          buyPrice: payload.BTC_USDC.price,
-          sellPrice: payload.BTC_USDC.price,
-          decimal: payload.BTC_USDC.decimal,
+        currentAssetPrices.BTCUSDT = {
+          buyPrice: payload.BTCUSDT.bid,
+          sellPrice: payload.BTCUSDT.ask,
+          decimal: payload.BTCUSDT.decimal,
         };
-        currentAssetPrices.ETH_USDC = {
-          buyPrice: payload.ETH_USDC.price,
-          sellPrice: payload.ETH_USDC.price,
-          decimal: payload.ETH_USDC.decimal,
+        currentAssetPrices.ETHUSDT = {
+          buyPrice: payload.ETHUSDT.bid,
+          sellPrice: payload.ETHUSDT.ask,
+          decimal: payload.ETHUSDT.decimal,
         };
 
         liquidateTrades();
-      } else if (data.kind === JOB_KINDS.CREATE_ORDER) {
+      }
+      // create order
+      else if (data.kind === JOB_KINDS.CREATE_ORDER) {
         if (users.length === 0) {
           const user = {
             email: "vinaybadgujar8@gmail.com",
@@ -69,6 +73,7 @@ async function process() {
         await publisher.XADD(QUEUES.RESPONSE_STREAM, "*", {
           data: JSON.stringify(payload),
         });
+        // close order
       } else if (data.kind === JOB_KINDS.CLOSE_ORDER) {
         console.log("here");
         const response = closeTrade(data.payload.email, data.payload.tradeId);
@@ -80,9 +85,12 @@ async function process() {
         await publisher.XADD(QUEUES.RESPONSE_STREAM, "*", {
           data: JSON.stringify(payload),
         });
+        // get open trades
       } else if (data.kind === JOB_KINDS.GET_OPEN_TRADES) {
         const response = getOpenTradesForUser(data.payload.email);
-      } else if (data.kind === JOB_KINDS.ADD_USER) {
+      }
+      // add user
+      else if (data.kind === JOB_KINDS.ADD_USER) {
         const response = handleAddUser(data.payload.email);
         const payload = {
           kind: JOB_KINDS.ORDER_RESPONSE,

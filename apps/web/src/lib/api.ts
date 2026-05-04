@@ -44,7 +44,7 @@ export async function postLogout(): Promise<void> {
 
 /** Matches `openTradeRequest` in apps/api/src/validators/tradeValidator.ts */
 export type OpenTradePayload = {
-  asset: "BTC_USDC" | "ETH_USDC";
+  asset: "BTCUSDT" | "ETHUSDT";
   side: "BUY" | "SELL";
   margin: number;
   leverage: number;

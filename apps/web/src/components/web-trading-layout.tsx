@@ -18,7 +18,10 @@ type Instrument = {
 /** Stable row order in the instruments list (matches `AssetSymbols` pair). */
 const TRADABLE: AssetSymbols[] = [AssetSymbols.BTC, AssetSymbols.ETH];
 
-function initialQuotes(): Record<AssetSymbols, Pick<Instrument, "bid" | "ask" | "up">> {
+function initialQuotes(): Record<
+  AssetSymbols,
+  Pick<Instrument, "bid" | "ask" | "up">
+> {
   return {
     [AssetSymbols.BTC]: { bid: 0, ask: 0, up: true },
     [AssetSymbols.ETH]: { bid: 0, ask: 0, up: true },
@@ -34,7 +37,7 @@ function fmt(n: number) {
 }
 
 /** API `asset` enum matches `AssetSymbols` values (see apps/api openTradeRequest). */
-function symbolToApiAsset(sym: AssetSymbols): "BTC_USDC" | "ETH_USDC" | null {
+function symbolToApiAsset(sym: AssetSymbols): "BTCUSDT" | "ETHUSDT" | null {
   if (sym === AssetSymbols.BTC || sym === AssetSymbols.ETH) return sym;
   return null;
 }
@@ -57,8 +60,7 @@ export function WebTradingLayout() {
   const [tradeMessage, setTradeMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    const url =
-      process.env.NEXT_PUBLIC_PRICE_WS_URL ?? "ws://localhost:8080";
+    const url = process.env.NEXT_PUBLIC_PRICE_WS_URL ?? "ws://localhost:8080";
     const socket = new WebSocket(url);
 
     socket.onmessage = (event) => {
@@ -345,9 +347,9 @@ export function WebTradingLayout() {
           {!canPlaceApiTrade && (
             <p className="border-b border-[#2a2e39] px-3 py-2 text-center text-[10px] leading-snug text-[#8b95a8]">
               Open trade API accepts{" "}
-              <span className="text-[#e8ecf4]">BTC_USDC</span> or{" "}
-              <span className="text-[#e8ecf4]">ETH_USDC</span>. Select BTC or
-              ETH to place an order.
+              <span className="text-[#e8ecf4]">BTCUSDT</span> or{" "}
+              <span className="text-[#e8ecf4]">ETHUSDT</span>. Select BTC or ETH
+              to place an order.
             </p>
           )}
           <div className="grid grid-cols-2 gap-2 p-3">

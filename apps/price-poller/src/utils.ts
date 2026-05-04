@@ -8,7 +8,7 @@ import type {
 export function transform(data: BookTicker): AssetMidPrice {
   const transformedData: AssetMidPrice = {
     ticker: data.s as AssetSymbols,
-    price: Number(data.a),
+    price: Number(data.p),
   };
   return transformedData;
 }
@@ -16,8 +16,8 @@ export function transform(data: BookTicker): AssetMidPrice {
 export function transformToBidAsk(data: BookTicker): AssetBidAskPrice {
   const transformedData: AssetBidAskPrice = {
     ticker: data.s as AssetSymbols,
-    bid: Number(data.b),
-    ask: Number(data.a),
+    bid: Number(Number(data.p) - 0.2 / 2), // 0.2% slippage
+    ask: Number(Number(data.p) + 0.2 / 2),
   };
   return transformedData;
 }

@@ -1,53 +1,32 @@
 "use client";
 
+import { getKlines } from "@/lib/api";
+import { AssetSymbols } from "@repo/types";
 import {
   CandlestickSeries,
   ColorType,
   createChart,
+  type OhlcData,
   type UTCTimestamp,
 } from "lightweight-charts";
 import { useEffect, useRef } from "react";
 
-type Candle = {
-  time: UTCTimestamp;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-};
-
-function seedCandles(base: number, count: number, stepSec: number): Candle[] {
-  const start = Math.floor(Date.now() / 1000) - count * stepSec;
-  const out: Candle[] = [];
-  let last = base;
-  for (let i = 0; i < count; i++) {
-    const drift = (Math.sin(i / 7) + (Math.random() - 0.45)) * 6;
-    const o = last;
-    const c = o + drift;
-    const h = Math.max(o, c) + Math.random() * 5;
-    const l = Math.min(o, c) - Math.random() * 5;
-    out.push({
-      time: (start + i * stepSec) as UTCTimestamp,
-      open: o,
-      high: h,
-      low: l,
-      close: c,
-    });
-    last = c;
-  }
-  return out;
-}
+export type ChartInterval = "1m" | "5m";
 
 type Props = {
+  asset: AssetSymbols;
+  interval: ChartInterval;
   className?: string;
 };
 
-export function WebTradingChart({ className }: Props) {
+export function WebTradingChart({ className, asset, interval }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
+
+    let cancelled = false;
 
     const chart = createChart(el, {
       layout: {
@@ -69,8 +48,18 @@ export function WebTradingChart({ className }: Props) {
         secondsVisible: false,
       },
       crosshair: {
-        vertLine: { color: "#4b5563", width: 1, style: 2, labelBackgroundColor: "#374151" },
-        horzLine: { color: "#4b5563", width: 1, style: 2, labelBackgroundColor: "#374151" },
+        vertLine: {
+          color: "#4b5563",
+          width: 1,
+          style: 2,
+          labelBackgroundColor: "#374151",
+        },
+        horzLine: {
+          color: "#4b5563",
+          width: 1,
+          style: 2,
+          labelBackgroundColor: "#374151",
+        },
       },
       autoSize: true,
     });
@@ -83,13 +72,20 @@ export function WebTradingChart({ className }: Props) {
       wickDownColor: "#ef5350",
     });
 
-    series.setData(seedCandles(4592, 180, 60));
-    chart.timeScale().fitContent();
+    void getKlines(asset, interval).then((data) => {
+      if (cancelled) return;
+      const candles = (Array.isArray(data) ? data : []) as OhlcData<UTCTimestamp>[];
+      series.setData(candles);
+      chart.timeScale().fitContent();
+    });
 
     return () => {
+      cancelled = true;
       chart.remove();
     };
-  }, []);
+  }, [asset, interval]);
 
-  return <div ref={wrapRef} className={className ?? "h-full min-h-[280px] w-full"} />;
+  return (
+    <div ref={wrapRef} className={className ?? "h-full min-h-[280px] w-full"} />
+  );
 }

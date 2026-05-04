@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { WebTradingChart } from "@/components/web-trading-chart";
+import {
+  type ChartInterval,
+  WebTradingChart,
+} from "@/components/web-trading-chart";
 import { postLogout, postOpenTrade } from "@/lib/api";
 import { AssetSymbols, BidAskTickSchema } from "@repo/types";
 
@@ -46,6 +49,14 @@ function displayShort(sym: AssetSymbols): string {
   return sym.replace("_USDC", "");
 }
 
+function matchesInstrumentSearch(sym: AssetSymbols, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const ticker = sym.toLowerCase();
+  const base = sym.replace(/USDT$/i, "").toLowerCase();
+  return ticker.includes(q) || base.includes(q);
+}
+
 export function WebTradingLayout() {
   const router = useRouter();
   const [selectedAsset, setSelectedAsset] = useState<AssetSymbols>(
@@ -58,6 +69,13 @@ export function WebTradingLayout() {
   const [leverage, setLeverage] = useState(10);
   const [tradeBusy, setTradeBusy] = useState(false);
   const [tradeMessage, setTradeMessage] = useState<string | null>(null);
+  const [chartInterval, setChartInterval] = useState<ChartInterval>("5m");
+  const [instrumentSearch, setInstrumentSearch] = useState("");
+
+  const filteredTradable = useMemo(
+    () => TRADABLE.filter((sym) => matchesInstrumentSearch(sym, instrumentSearch)),
+    [instrumentSearch],
+  );
 
   useEffect(() => {
     const url = process.env.NEXT_PUBLIC_PRICE_WS_URL ?? "ws://localhost:8080";
@@ -147,30 +165,24 @@ export function WebTradingLayout() {
   return (
     <div className="flex h-dvh max-h-dvh flex-col bg-[#0f1115] text-[#e8ecf4]">
       {/* Top bar */}
-      <header className="flex h-11 shrink-0 items-center gap-3 border-b border-[#2a2e39] px-2 sm:px-3">
+      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[#2a2e39] px-2 sm:gap-3 sm:px-3">
         <Link
           href="/"
           className="shrink-0 pl-1 text-sm font-bold tracking-tight text-[#ffd700]"
         >
           exness
         </Link>
-        <div className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto sm:flex">
-          {TRADABLE.map((sym) => (
-            <button
-              key={sym}
-              type="button"
-              onClick={() => setSelectedAsset(sym)}
-              className={`shrink-0 rounded px-2.5 py-1 text-xs font-medium transition ${
-                selectedAsset === sym
-                  ? "bg-[#1a1d26] text-white"
-                  : "text-[#8b95a8] hover:bg-[#1a1d26]/80 hover:text-white"
-              }`}
-            >
-              {displayShort(sym)}
-            </button>
-          ))}
+        <div className="min-w-0 flex-1">
+          <input
+            type="search"
+            value={instrumentSearch}
+            onChange={(e) => setInstrumentSearch(e.target.value)}
+            placeholder="Search instruments"
+            aria-label="Search instruments"
+            className="h-8 w-full max-w-md rounded border border-[#2a2e39] bg-[#14171f] px-2.5 text-xs text-white outline-none placeholder:text-[#6b7280] focus:border-[#3d4454]"
+          />
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           <span className="hidden text-xs text-[#8b95a8] md:inline">
             Demo Standard
           </span>
@@ -202,67 +214,81 @@ export function WebTradingLayout() {
               Instruments
             </span>
           </div>
-          <div className="border-b border-[#2a2e39] px-2 pb-2">
-            <input
-              type="search"
-              placeholder="Search"
-              className="h-8 w-full rounded border border-[#2a2e39] bg-[#14171f] px-2 text-xs text-white outline-none placeholder:text-[#6b7280] focus:border-[#3d4454]"
-            />
-          </div>
           <div className="min-h-0 flex-1 overflow-auto text-xs">
             <div className="grid grid-cols-[1fr_auto_auto] gap-x-1 border-b border-[#2a2e39] px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide text-[#6b7280]">
               <span>Symbol</span>
               <span className="text-right">Bid</span>
               <span className="text-right">Ask</span>
             </div>
-            {TRADABLE.map((sym) => {
-              const row = quotes[sym];
-              return (
-                <button
-                  key={sym}
-                  type="button"
-                  onClick={() => setSelectedAsset(sym)}
-                  className={`grid w-full grid-cols-[1fr_auto_auto] items-center gap-x-1 border-b border-[#1f232d] px-2 py-1.5 text-left transition hover:bg-[#1a1d26] ${
-                    selectedAsset === sym
-                      ? "bg-[#1a1d26] ring-1 ring-inset ring-[#ffd700]/30"
-                      : ""
-                  }`}
-                >
-                  <span className="font-medium text-white">
-                    {displayShort(sym)}
-                  </span>
-                  <span
-                    className={`rounded px-1.5 py-0.5 text-right font-mono tabular-nums ${
-                      row.up
-                        ? "bg-[#1a3d2e] text-[#26c281]"
-                        : "bg-[#3d1f24] text-[#ef5350]"
+            {filteredTradable.length === 0 ? (
+              <p className="px-2 py-4 text-center text-[11px] text-[#6b7280]">
+                No instruments match your search.
+              </p>
+            ) : (
+              filteredTradable.map((sym) => {
+                const row = quotes[sym];
+                return (
+                  <button
+                    key={sym}
+                    type="button"
+                    onClick={() => setSelectedAsset(sym)}
+                    className={`grid w-full grid-cols-[1fr_auto_auto] items-center gap-x-1 border-b border-[#1f232d] px-2 py-1.5 text-left transition hover:bg-[#1a1d26] ${
+                      selectedAsset === sym
+                        ? "bg-[#1a1d26] ring-1 ring-inset ring-[#ffd700]/30"
+                        : ""
                     }`}
                   >
-                    {fmt(row.bid)}
-                  </span>
-                  <span
-                    className={`rounded px-1.5 py-0.5 text-right font-mono tabular-nums ${
-                      row.up
-                        ? "bg-[#1a3d2e] text-[#26c281]"
-                        : "bg-[#3d1f24] text-[#ef5350]"
-                    }`}
-                  >
-                    {fmt(row.ask)}
-                  </span>
-                </button>
-              );
-            })}
+                    <span className="font-medium text-white">
+                      {displayShort(sym)}
+                    </span>
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-right font-mono tabular-nums ${
+                        row.up
+                          ? "bg-[#1a3d2e] text-[#26c281]"
+                          : "bg-[#3d1f24] text-[#ef5350]"
+                      }`}
+                    >
+                      {fmt(row.bid)}
+                    </span>
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-right font-mono tabular-nums ${
+                        row.up
+                          ? "bg-[#1a3d2e] text-[#26c281]"
+                          : "bg-[#3d1f24] text-[#ef5350]"
+                      }`}
+                    >
+                      {fmt(row.ask)}
+                    </span>
+                  </button>
+                );
+              })
+            )}
           </div>
         </aside>
 
         {/* Chart + bottom */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col border-b border-[#2a2e39] lg:border-b-0">
-            <div className="flex shrink-0 items-center gap-2 border-b border-[#2a2e39] px-2 py-1.5 text-[11px] text-[#8b95a8]">
+            <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[#2a2e39] px-2 py-1.5 text-[11px] text-[#8b95a8]">
               <span className="font-medium text-white">
-                Gold vs US Dollar · 1
+                {selectedAsset.replace("USDT", "")} / USDT
               </span>
-              <span className="rounded bg-[#1a1d26] px-1.5 py-0.5">1m</span>
+              <span className="flex items-center gap-1">
+                {(["1m", "5m"] as const).map((iv) => (
+                  <button
+                    key={iv}
+                    type="button"
+                    onClick={() => setChartInterval(iv)}
+                    className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition ${
+                      chartInterval === iv
+                        ? "bg-[#1a1d26] text-white"
+                        : "text-[#8b95a8] hover:bg-[#1f232d] hover:text-white"
+                    }`}
+                  >
+                    {iv}
+                  </button>
+                ))}
+              </span>
               <span className="hidden sm:inline">Candles</span>
               <span className="ml-auto hidden rounded border border-[#2a2e39] px-2 py-0.5 sm:inline">
                 Save
@@ -282,7 +308,11 @@ export function WebTradingLayout() {
                 ))}
               </div>
               <div className="relative min-h-0 min-w-0 flex-1">
-                <WebTradingChart className="absolute inset-0 h-full w-full" />
+                <WebTradingChart
+                  className="absolute inset-0 h-full w-full"
+                  asset={selectedAsset}
+                  interval={chartInterval}
+                />
               </div>
             </div>
           </div>

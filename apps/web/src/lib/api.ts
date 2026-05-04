@@ -90,3 +90,20 @@ export async function getLoginPost(token: string): Promise<Response> {
     credentials: "include",
   });
 }
+
+export async function getKlines(asset: string, interval: string) {
+  const res = await fetch(
+    `${getApiBaseUrl()}/api/v1/chart?symbol=${asset}&limit=100&interval=${interval}`,
+    {
+      method: "GET",
+      credentials: "include",
+    },
+  );
+
+  if (!res.ok) {
+    return null;
+  }
+
+  const data = await res.json();
+  return data.data;
+}

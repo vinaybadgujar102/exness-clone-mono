@@ -14,7 +14,9 @@ export function authMiddleware(
   res: Response,
   next: NextFunction,
 ) {
+  console.log(req.cookies);
   const sessionToken = req.cookies.sessionToken;
+
   if (!sessionToken) {
     return res.json({
       error: "NO Token Present",

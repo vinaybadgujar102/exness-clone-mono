@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import { listenForResponse } from "./validators/worker.ts";
 import v1Router from "./routes/index.ts";
+import cookieParser from "cookie-parser";
 
 const app = express();
 
@@ -13,6 +14,7 @@ app.use(
   }),
 );
 app.use(express.json());
+app.use(cookieParser());
 
 export const pending = new Map();
 

@@ -11,7 +11,8 @@
     "zod": "^4.3.6"
   },
   "scripts": {
-    "watch": "bun watch src/index.ts"
+    "watch": "bun watch src/index.ts",
+    "dev": "bun run src/index.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"

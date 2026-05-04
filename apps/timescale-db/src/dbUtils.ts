@@ -13,6 +13,11 @@ export async function initDB() {
       tsdb.orderby = 'time DESC'
     )
     `);
+
+  await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_trade_ticker_time
+      ON trade (ticker, time DESC)
+    `);
 }
 
 export async function insertTick(ticker: AssetSymbols, price: number) {
@@ -38,6 +43,11 @@ export async function createOneMinCandles() {
       last(price, time) AS close
     FROM trade
     GROUP BY bucket, ticker;
+    `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_one_min_ticker_bucket
+    ON one_min_candles (ticker, bucket DESC)
     `);
 
   try {
@@ -67,6 +77,11 @@ export async function createFiveMinCandles() {
       last(price, time) AS close
     FROM trade
     GROUP BY bucket, ticker;
+    `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_five_min_ticker_bucket
+    ON five_min_candles (ticker, bucket DESC);
     `);
 
   try {

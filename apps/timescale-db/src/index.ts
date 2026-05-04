@@ -7,9 +7,9 @@ import {
   insertTick,
 } from "./dbUtils";
 
-initDB();
-createOneMinCandles();
-createFiveMinCandles();
+await initDB();
+await createOneMinCandles();
+await createFiveMinCandles();
 
 while (true) {
   const response = await subscriber.XREAD(

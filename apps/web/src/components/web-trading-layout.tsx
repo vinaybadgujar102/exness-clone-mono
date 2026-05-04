@@ -118,6 +118,12 @@ export function WebTradingLayout() {
     return { sym: selectedAsset, ...q };
   }, [quotes, selectedAsset]);
 
+  const chartLiveMid = useMemo(() => {
+    const q = quotes[selectedAsset];
+    if (q.bid <= 0 || q.ask <= 0) return null;
+    return (q.bid + q.ask) / 2;
+  }, [quotes, selectedAsset]);
+
   const apiAsset = useMemo(
     () => symbolToApiAsset(selectedAsset),
     [selectedAsset],
@@ -312,6 +318,7 @@ export function WebTradingLayout() {
                   className="absolute inset-0 h-full w-full"
                   asset={selectedAsset}
                   interval={chartInterval}
+                  liveMid={chartLiveMid}
                 />
               </div>
             </div>

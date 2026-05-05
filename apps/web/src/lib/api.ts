@@ -22,7 +22,12 @@ export async function postLogin(email: string): Promise<LoginResponse> {
     body: JSON.stringify({ email }),
     credentials: "include",
   });
-  return (await res.json()) as LoginResponse;
+  const data = (await parseJsonSafe(res)) as LoginResponse | null;
+  if (!res.ok) {
+    const msg = extractErrorMessage(data) ?? `Request failed (${res.status})`;
+    throw new Error(msg);
+  }
+  return data ?? {};
 }
 
 export async function postSignup(email: string): Promise<LoginResponse> {
@@ -32,7 +37,12 @@ export async function postSignup(email: string): Promise<LoginResponse> {
     body: JSON.stringify({ email }),
     credentials: "include",
   });
-  return (await res.json()) as LoginResponse;
+  const data = (await parseJsonSafe(res)) as LoginResponse | null;
+  if (!res.ok) {
+    const msg = extractErrorMessage(data) ?? `Request failed (${res.status})`;
+    throw new Error(msg);
+  }
+  return data ?? {};
 }
 
 export async function postLogout(): Promise<void> {
@@ -79,12 +89,7 @@ export async function getOpenPositions(): Promise<OpenPositions> {
     credentials: "include",
   });
 
-  let data: unknown = null;
-  try {
-    data = await res.json();
-  } catch {
-    data = null;
-  }
+  const data = await parseJsonSafe(res);
 
   if (!res.ok) {
     const msg = extractErrorMessage(data) ?? `Request failed (${res.status})`;
@@ -120,12 +125,7 @@ export async function postCloseTrade(
     credentials: "include",
   });
 
-  let data: unknown = null;
-  try {
-    data = await res.json();
-  } catch {
-    data = null;
-  }
+  const data = await parseJsonSafe(res);
 
   if (!res.ok) {
     const msg = extractErrorMessage(data) ?? `Request failed (${res.status})`;
@@ -152,12 +152,7 @@ export async function postOpenTrade(body: OpenTradePayload): Promise<unknown> {
     credentials: "include",
   });
 
-  let data: unknown = null;
-  try {
-    data = await res.json();
-  } catch {
-    data = null;
-  }
+  const data = await parseJsonSafe(res);
 
   if (!res.ok) {
     const msg = extractErrorMessage(data) ?? `Request failed (${res.status})`;
@@ -197,6 +192,16 @@ export async function getKlines(asset: string, interval: string) {
     return null;
   }
 
-  const data = await res.json();
-  return data.data;
+  const data = await parseJsonSafe(res);
+  if (!data || typeof data !== "object") return null;
+  const body = data as { data?: unknown };
+  return body.data ?? null;
+}
+
+async function parseJsonSafe(res: Response): Promise<unknown> {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
 }

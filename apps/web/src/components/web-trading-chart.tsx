@@ -1,7 +1,9 @@
 "use client";
 
 import { getKlines } from "@/lib/api";
+import { queryKeys } from "@/lib/query/query-keys";
 import { AssetSymbols } from "@repo/types";
+import { useQuery } from "@tanstack/react-query";
 import {
   CandlestickSeries,
   ColorType,
@@ -133,6 +135,10 @@ export function WebTradingChart({
   const lastLoadedBarRef = useRef<LastBarSnapshot | null>(null);
   const liveMidRef = useRef<number | null>(liveMid);
   liveMidRef.current = liveMid;
+  const klinesQuery = useQuery({
+    queryKey: queryKeys.chart.klines(asset, interval),
+    queryFn: () => getKlines(asset, interval),
+  });
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -190,9 +196,9 @@ export function WebTradingChart({
     });
     seriesRef.current = series;
 
-    void getKlines(asset, interval).then((data) => {
-      if (cancelled) return;
-      const candles = (Array.isArray(data) ? data : []) as OhlcData<UTCTimestamp>[];
+    const data = klinesQuery.data;
+    if (cancelled) return;
+    const candles = (Array.isArray(data) ? data : []) as OhlcData<UTCTimestamp>[];
       series.setData(candles);
 
       const last = candles[candles.length - 1];
@@ -238,8 +244,7 @@ export function WebTradingChart({
         );
       }
 
-      chart.timeScale().fitContent();
-    });
+    chart.timeScale().fitContent();
 
     return () => {
       cancelled = true;
@@ -250,7 +255,7 @@ export function WebTradingChart({
       lastLoadedBarRef.current = null;
       chart.remove();
     };
-  }, [asset, interval]);
+  }, [asset, interval, klinesQuery.data]);
 
   useEffect(() => {
     if (!historyLoadedRef.current) return;

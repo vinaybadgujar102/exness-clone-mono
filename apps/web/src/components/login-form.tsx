@@ -2,44 +2,47 @@
 
 import { useState } from "react";
 
-import { postLogin, postSignup } from "@/lib/api";
-
-type Tab = "signin" | "register";
+import { useLoginMutation, useSignupMutation } from "@/lib/query/use-auth-queries";
+import { useAuthUiStore } from "@/stores/auth-ui-store";
 
 export function LoginForm() {
-  const [tab, setTab] = useState<Tab>("signin");
+  const { tab, setTab } = useAuthUiStore();
   const [email, setEmail] = useState("");
-  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
+  const loginMutation = useLoginMutation();
+  const signupMutation = useSignupMutation();
+  const busy = loginMutation.isPending || signupMutation.isPending;
 
   async function onLogin() {
-    setBusy(true);
     setMessage(null);
     setLink(null);
     try {
-      const res = await postLogin(email.trim());
+      const res = await loginMutation.mutateAsync(email.trim());
       setMessage(res.message ?? null);
       setLink(res.link ?? null);
-    } catch {
-      setMessage("Network error — is the API running on port 3000?");
-    } finally {
-      setBusy(false);
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Network error — is the API running on port 3000?",
+      );
     }
   }
 
   async function onSignup() {
-    setBusy(true);
     setMessage(null);
     setLink(null);
     try {
-      const res = await postSignup(email.trim());
+      const res = await signupMutation.mutateAsync(email.trim());
       setMessage(res.message ?? null);
       setLink(res.link ?? null);
-    } catch {
-      setMessage("Network error — is the API running on port 3000?");
-    } finally {
-      setBusy(false);
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Network error — is the API running on port 3000?",
+      );
     }
   }
 

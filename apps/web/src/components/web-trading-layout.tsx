@@ -3,18 +3,25 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 
+import { ConflictNotice } from "@/components/state/conflict-notice";
+import { StaleIndicator } from "@/components/state/stale-indicator";
+import { WebTradingChart } from "@/components/web-trading-chart";
 import {
-  type ChartInterval,
-  WebTradingChart,
-} from "@/components/web-trading-chart";
-import {
-  getOpenPositions,
-  postCloseTrade,
   postLogout,
-  postOpenTrade,
   type OpenTrade,
 } from "@/lib/api";
+import { resolveServerWinsConflict } from "@/lib/query/conflict-resolution";
+import { invalidateOpenPositions } from "@/lib/query/invalidation-rules";
+import {
+  useCloseTradeMutation,
+  useOpenPositionsQuery,
+  useOpenTradeMutation,
+} from "@/lib/query/use-webtrading-queries";
+import { useAuthUiStore } from "@/stores/auth-ui-store";
+import { resetSessionScopedStores } from "@/stores/session-reset";
+import { useWebTradingUiStore } from "@/stores/webtrading-ui-store";
 import { AssetSymbols, BidAskTickSchema } from "@repo/types";
 
 type Instrument = {
@@ -88,25 +95,43 @@ function matchesInstrumentSearch(sym: AssetSymbols, query: string): boolean {
 
 export function WebTradingLayout() {
   const router = useRouter();
-  const [selectedAsset, setSelectedAsset] = useState<AssetSymbols>(
-    AssetSymbols.BTC,
-  );
+  const queryClient = useQueryClient();
+  const {
+    selectedAsset,
+    setSelectedAsset,
+    posTab,
+    setPosTab,
+    margin,
+    setMargin,
+    leverage,
+    setLeverage,
+    chartInterval,
+    setChartInterval,
+    instrumentSearch,
+    setInstrumentSearch,
+  } = useWebTradingUiStore();
   const [quotes, setQuotes] = useState(initialQuotes);
-  const [posTab, setPosTab] = useState<"open" | "closed">("open");
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [margin, setMargin] = useState(100);
-  const [leverage, setLeverage] = useState(10);
-  const [tradeBusy, setTradeBusy] = useState(false);
   const [tradeMessage, setTradeMessage] = useState<string | null>(null);
-  const [chartInterval, setChartInterval] = useState<ChartInterval>("5m");
-  const [instrumentSearch, setInstrumentSearch] = useState("");
-  const [openTrades, setOpenTrades] = useState<OpenTrade[]>([]);
-  const [tradesLoading, setTradesLoading] = useState(false);
   const [tradesError, setTradesError] = useState<string | null>(null);
-  const [accountBalance, setAccountBalance] = useState<number | null>(null);
+  const [localDraftTradeId, setLocalDraftTradeId] = useState<string | null>(null);
+  const authConflictNotice = useAuthUiStore((s) => s.lastConflictNotice);
+  const setAuthConflictNotice = useAuthUiStore((s) => s.setLastConflictNotice);
   const [closingTradeIds, setClosingTradeIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const openPositionsQuery = useOpenPositionsQuery(posTab === "open");
+  const openTradeMutation = useOpenTradeMutation();
+  const closeTradeMutation = useCloseTradeMutation();
+  const tradeBusy = openTradeMutation.isPending;
+  const openTrades = useMemo(
+    () =>
+      (openPositionsQuery.data?.trades ?? []).filter(
+        (t) => (t.status ?? "OPEN") === "OPEN",
+      ),
+    [openPositionsQuery.data?.trades],
+  );
+  const accountBalance = openPositionsQuery.data?.balance ?? null;
 
   const filteredTradable = useMemo(
     () =>
@@ -151,24 +176,9 @@ export function WebTradingLayout() {
   }, []);
 
   const refreshOpenTrades = useCallback(async () => {
-    setTradesLoading(true);
     setTradesError(null);
-    try {
-      const { trades, balance } = await getOpenPositions();
-      setOpenTrades(
-        trades.filter((t) => (t.status ?? "OPEN") === "OPEN"),
-      );
-      setAccountBalance(balance);
-    } catch (e) {
-      setTradesError(e instanceof Error ? e.message : "Failed to load trades");
-    } finally {
-      setTradesLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (posTab === "open") void refreshOpenTrades();
-  }, [posTab, refreshOpenTrades]);
+    await invalidateOpenPositions(queryClient);
+  }, [queryClient]);
 
   const active = useMemo((): Instrument => {
     const q = quotes[selectedAsset];
@@ -209,13 +219,22 @@ export function WebTradingLayout() {
     return accountBalance + marginInUse + unrealizedTotalUsd;
   }, [accountBalance, marginInUse, unrealizedTotalUsd]);
 
+  useEffect(() => {
+    if (!localDraftTradeId || !openPositionsQuery.data) return;
+    const resolved = resolveServerWinsConflict({
+      previousLocalDraft: localDraftTradeId,
+      latestServerState: null as string | null,
+    });
+    if (resolved.notice) setAuthConflictNotice(resolved.notice);
+  }, [localDraftTradeId, openPositionsQuery.data, setAuthConflictNotice]);
+
   async function handleCloseTrade(tradeId: string) {
     if (closingTradeIds.has(tradeId)) return;
+    setLocalDraftTradeId(tradeId);
     setClosingTradeIds((prev) => new Set(prev).add(tradeId));
     setTradesError(null);
     try {
-      const { balance } = await postCloseTrade(tradeId);
-      setAccountBalance(balance);
+      await closeTradeMutation.mutateAsync(tradeId);
       await refreshOpenTrades();
     } catch (e) {
       setTradesError(e instanceof Error ? e.message : "Failed to close trade");
@@ -225,6 +244,7 @@ export function WebTradingLayout() {
         next.delete(tradeId);
         return next;
       });
+      setLocalDraftTradeId(null);
     }
   }
 
@@ -236,10 +256,9 @@ export function WebTradingLayout() {
       return;
     }
 
-    setTradeBusy(true);
     setTradeMessage(null);
     try {
-      await postOpenTrade({
+      await openTradeMutation.mutateAsync({
         asset,
         side,
         margin,
@@ -250,7 +269,7 @@ export function WebTradingLayout() {
     } catch (e) {
       setTradeMessage(e instanceof Error ? e.message : "Order failed");
     } finally {
-      setTradeBusy(false);
+      // mutation pending state drives busy flag
     }
   }
 
@@ -260,6 +279,7 @@ export function WebTradingLayout() {
     setIsLoggingOut(true);
     try {
       await postLogout();
+      resetSessionScopedStores();
     } finally {
       router.replace("/login");
       router.refresh();
@@ -398,6 +418,11 @@ export function WebTradingLayout() {
               <span className="ml-auto hidden rounded border border-[#2a2e39] px-2 py-0.5 sm:inline">
                 Save
               </span>
+              <StaleIndicator
+                isStale={openPositionsQuery.isStale}
+                isFetching={openPositionsQuery.isFetching}
+                onRefresh={() => void refreshOpenTrades()}
+              />
             </div>
             <div className="flex min-h-0 min-w-0 flex-1">
               <div className="hidden w-9 shrink-0 flex-col gap-0.5 border-r border-[#2a2e39] bg-[#14171f] py-1 xl:flex">
@@ -461,7 +486,7 @@ export function WebTradingLayout() {
                   </svg>
                   <p className="text-sm">No closed positions</p>
                 </div>
-              ) : tradesLoading ? (
+              ) : openPositionsQuery.isLoading ? (
                 <p className="px-3 py-6 text-center text-sm text-[#8b95a8]">
                   Loading positions…
                 </p>
@@ -576,6 +601,12 @@ export function WebTradingLayout() {
                   </tbody>
                 </table>
               )}
+            </div>
+            <div className="px-3 pt-1">
+              <ConflictNotice
+                message={authConflictNotice}
+                onDismiss={() => setAuthConflictNotice(null)}
+              />
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-[#2a2e39] bg-[#14171f] px-3 py-1.5 text-[10px] text-[#8b95a8]">
               <span>

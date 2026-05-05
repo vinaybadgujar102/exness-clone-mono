@@ -4,11 +4,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 
-import { getLoginPost } from "@/lib/api";
+import { resolveServerWinsConflict } from "@/lib/query/conflict-resolution";
+import { useCallbackLoginMutation } from "@/lib/query/use-auth-queries";
 import {
   AUTH_REDIRECT_NEXT_KEY,
   safeRedirectPath,
 } from "@/lib/safe-redirect-path";
+import { useAuthUiStore } from "@/stores/auth-ui-store";
 
 function CallbackInner() {
   const searchParams = useSearchParams();
@@ -18,6 +20,10 @@ function CallbackInner() {
     "idle",
   );
   const [detail, setDetail] = useState<string>("");
+  const loginMutation = useCallbackLoginMutation();
+  const loginNextPath = useAuthUiStore((s) => s.loginNextPath);
+  const setLoginNextPath = useAuthUiStore((s) => s.setLoginNextPath);
+  const setLastConflictNotice = useAuthUiStore((s) => s.setLastConflictNotice);
 
   useEffect(() => {
     if (!token) {
@@ -29,7 +35,7 @@ function CallbackInner() {
     (async () => {
       setStatus("loading");
       try {
-        const res = await getLoginPost(token);
+        const res = await loginMutation.mutateAsync(token);
         const body = await res.text();
         if (cancelled) return;
         if (!res.ok) {
@@ -47,8 +53,13 @@ function CallbackInner() {
         if (typeof window !== "undefined") {
           sessionStorage.removeItem(AUTH_REDIRECT_NEXT_KEY);
         }
-        const target =
-          fromUrl ?? safeRedirectPath(fromSession) ?? "/webtrading";
+        const resolved = resolveServerWinsConflict({
+          previousLocalDraft: loginNextPath,
+          latestServerState: fromUrl ?? safeRedirectPath(fromSession) ?? "/webtrading",
+        });
+        if (resolved.notice) setLastConflictNotice(resolved.notice);
+        setLoginNextPath(null);
+        const target = resolved.resolvedState;
         router.replace(target);
         router.refresh();
       } catch (e) {
@@ -60,7 +71,15 @@ function CallbackInner() {
     return () => {
       cancelled = true;
     };
-  }, [token, router, searchParams]);
+  }, [
+    token,
+    router,
+    searchParams,
+    loginMutation,
+    loginNextPath,
+    setLastConflictNotice,
+    setLoginNextPath,
+  ]);
 
   return (
     <div className="mx-auto max-w-lg rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-1)] p-8">

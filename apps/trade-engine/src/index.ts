@@ -1,5 +1,5 @@
 import {
-  CreateOrderSchema,
+  AssetSymbols,
   EVENT_KINDS,
   EventSchema,
   JOB_KINDS,
@@ -40,19 +40,24 @@ async function process() {
 
       // update prices
       if (data.kind === EVENT_KINDS.PRICE_TICK) {
-        console.log(data.payload);
-        const payload = data.payload;
-        currentAssetPrices.BTCUSDT = {
-          buyPrice: payload.BTCUSDT.price + 0.02 / 2,
-          sellPrice: payload.BTCUSDT.price - 0.02 / 2,
-          decimal: payload.BTCUSDT.decimal,
-        };
-        currentAssetPrices.ETHUSDT = {
-          buyPrice: payload.ETHUSDT.price + 0.02 / 2,
-          sellPrice: payload.ETHUSDT.price - 0.02 / 2,
-          decimal: payload.ETHUSDT.decimal,
-        };
+        function handlePriceTick() {
+          for (const [key, value] of Object.entries(data.payload)) {
+            const scale = 10 ** value.decimal;
+            const priceInt = Math.round(value.price * scale);
+            const spreadInt = Math.round(0.01 * scale);
 
+            const buyInt = priceInt + spreadInt;
+            const sellInt = priceInt - spreadInt;
+
+            currentAssetPrices[key as AssetSymbols] = {
+              buyPrice: buyInt / scale,
+              sellPrice: sellInt / scale,
+              decimal: value.decimal,
+            };
+          }
+        }
+        console.log(currentAssetPrices);
+        handlePriceTick();
         liquidateTrades();
       }
       // create order

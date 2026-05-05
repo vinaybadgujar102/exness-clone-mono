@@ -2,7 +2,7 @@ import type { AssetSymbols, TradeEnginePrices } from "@repo/types";
 
 export type Trade = {
   id: string;
-  email: string;
+  userId: number;
   asset: AssetSymbols;
   side: "BUY" | "SELL";
   entryPrice: number;
@@ -17,7 +17,7 @@ export type Trade = {
 };
 
 export type Users = {
-  email: string;
+  id: number;
   balance: number;
   openTrades: Record<string, Trade>;
 }[];

@@ -3,11 +3,11 @@ import { currentAssetPrices, users, type Trade } from "./inMemoryDb";
 import type z from "zod";
 
 export function createTrade(
-  email: string,
+  userId: number,
   trade: z.infer<typeof CreateOrderSchema>,
-): { success: boolean; message: string } {
+): { success: boolean; message: string; data?: Trade } {
   const { asset, margin, leverage, side, id } = trade.payload.trade;
-  const user = users.find((user) => user.email === email);
+  const user = users.find((user) => user.id === userId);
   if (!user) {
     return {
       success: false,
@@ -44,7 +44,7 @@ export function createTrade(
 
   const createdTrade: Trade = {
     id,
-    email,
+    userId,
     asset,
     side,
     liquidationPrice,
@@ -62,14 +62,15 @@ export function createTrade(
   return {
     success: true,
     message: "TRADE_CREATED",
+    data: createdTrade,
   };
 }
 
 export function closeTrade(
-  email: string,
+  userId: number,
   tradeId: string,
-): { success: boolean; message: string; balance?: number } {
-  const user = users.find((user) => user.email === email);
+): { success: boolean; message: string; data?: Trade; balance?: number } {
+  const user = users.find((user) => user.id === userId);
   if (!user) {
     return {
       success: false,
@@ -107,6 +108,8 @@ export function closeTrade(
   const direction = tradeToClose.side === "BUY" ? 1 : -1;
   const priceDiff = (currentPrice - tradeToClose.entryPrice) * direction;
   const pnl = priceDiff * tradeToClose.quantity;
+  tradeToClose.pnl = pnl;
+  tradeToClose.status = "CLOSED";
 
   user.balance += tradeToClose.margin + pnl;
   delete user.openTrades[tradeId];
@@ -114,6 +117,7 @@ export function closeTrade(
   return {
     success: true,
     message: "TRADE_CLOSED",
+    data: tradeToClose,
     balance: user.balance,
   };
 }
@@ -137,13 +141,13 @@ export function liquidateTrades() {
     }
 
     for (const tradeId of tradesToLiquidate) {
-      closeTrade(user.email, tradeId);
+      closeTrade(user.id, tradeId);
     }
   }
 }
 
-export function getOpenTradesForUser(email: string) {
-  const user = users.find((user) => user.email === email);
+export function getOpenTradesForUser(userId: number) {
+  const user = users.find((user) => user.id === userId);
   if (!user) {
     return;
   }
@@ -152,10 +156,11 @@ export function getOpenTradesForUser(email: string) {
 }
 
 /** Open trades plus wallet balance (free margin) for GET_OPEN_TRADES. */
-export function getAccountSnapshotForUser(email: string):
-  | { trades: Trade[]; balance: number }
-  | undefined {
-  const user = users.find((u) => u.email === email);
+export function getAccountSnapshotForUser(
+  userId: number,
+): { trades: Trade[]; balance: number } | undefined {
+  const user = users.find((u) => u.id === userId);
+  console.log(user);
   if (!user) return undefined;
   return {
     trades: Object.values(user.openTrades),
@@ -163,8 +168,8 @@ export function getAccountSnapshotForUser(email: string):
   };
 }
 
-export function handleAddUser(email: string) {
-  const user = users.find((user) => user.email === email);
+export function handleAddUser(userId: number) {
+  const user = users.find((user) => user.id === userId);
   if (user) {
     return {
       success: true,
@@ -174,7 +179,7 @@ export function handleAddUser(email: string) {
 
   const newUser = {
     balance: 10000,
-    email,
+    id: userId,
     openTrades: {},
   };
   users.push(newUser);

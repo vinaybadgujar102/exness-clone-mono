@@ -56,13 +56,12 @@ async function process() {
             };
           }
         }
-        console.log(currentAssetPrices);
         handlePriceTick();
         liquidateTrades();
       }
       // create order
       else if (data.kind === JOB_KINDS.CREATE_ORDER) {
-        const response = createTrade(data.payload.email, data);
+        const response = createTrade(data.payload.id, data);
         const payload: z.infer<typeof OrderResponseSchema> = {
           kind: JOB_KINDS.ORDER_RESPONSE,
           requestId: data.requestId,
@@ -73,8 +72,7 @@ async function process() {
         });
         // close order
       } else if (data.kind === JOB_KINDS.CLOSE_ORDER) {
-        console.log("here");
-        const response = closeTrade(data.payload.email, data.payload.tradeId);
+        const response = closeTrade(data.payload.id, data.payload.tradeId);
         const payload = {
           kind: JOB_KINDS.ORDER_RESPONSE,
           requestId: data.requestId,
@@ -85,7 +83,7 @@ async function process() {
         });
         // get open trades
       } else if (data.kind === JOB_KINDS.GET_OPEN_TRADES) {
-        const snap = getAccountSnapshotForUser(data.payload.email);
+        const snap = getAccountSnapshotForUser(data.payload.id);
         const payload: z.infer<typeof OrderResponseSchema> = {
           kind: JOB_KINDS.ORDER_RESPONSE,
           requestId: data.requestId,
@@ -107,7 +105,7 @@ async function process() {
       }
       // add user
       else if (data.kind === JOB_KINDS.ADD_USER) {
-        const response = handleAddUser(data.payload.email);
+        const response = handleAddUser(data.payload.id);
         const payload = {
           kind: JOB_KINDS.ORDER_RESPONSE,
           requestId: data.requestId,

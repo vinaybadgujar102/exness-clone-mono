@@ -1,6 +1,6 @@
 import { AssetSymbols, EVENT_KINDS } from "@repo/types";
 import { WebSocketServer, WebSocket } from "ws";
-import { current_price_bid_ask } from "./inMemoryStore";
+import { current_price_mid } from "./inMemoryStore";
 
 const subscriptions = new Map<string, Set<WebSocket>>();
 
@@ -39,7 +39,7 @@ export function startWebSocketServer(port: number) {
 
     setInterval(() => {
       for (const [symbol, clients] of subscriptions.entries()) {
-        const price = current_price_bid_ask[symbol as AssetSymbols];
+        const price = current_price_mid[symbol as AssetSymbols];
 
         if (!price) continue;
 

@@ -30,7 +30,7 @@ export const GetOpenOrdersSchema = z.object({
   kind: z.literal(JOB_KINDS.GET_OPEN_TRADES),
   requestId: z.string(),
   payload: z.object({
-    email: z.string(),
+    id: z.number(),
   }),
 });
 
@@ -38,7 +38,7 @@ export const CreateOrderSchema = z.object({
   kind: z.literal(JOB_KINDS.CREATE_ORDER),
   requestId: z.string(),
   payload: z.object({
-    email: z.email(),
+    id: z.number(),
     trade: z.object({
       id: z.string(),
       side: z.enum(["BUY", "SELL"]),
@@ -53,7 +53,7 @@ export const CloseOrderSchema = z.object({
   kind: z.literal(JOB_KINDS.CLOSE_ORDER),
   requestId: z.string(),
   payload: z.object({
-    email: z.string(),
+    id: z.number(),
     tradeId: z.string(),
   }),
 });
@@ -62,7 +62,7 @@ export const AddUserSchema = z.object({
   kind: z.literal(JOB_KINDS.ADD_USER),
   requestId: z.string(),
   payload: z.object({
-    email: z.string(),
+    id: z.number(),
   }),
 });
 
@@ -99,6 +99,22 @@ export enum QUEUES {
   SEND_STREAM = "send_stream",
   RESPONSE_STREAM = "response_stream",
 }
+
+export type Trade = {
+  id: string;
+  userId: number;
+  asset: AssetSymbols;
+  side: "BUY" | "SELL";
+  entryPrice: number;
+  margin: number;
+  leverage: number;
+  notional: number;
+  quantity: number;
+  pnl: number;
+  status: "OPEN" | "CLOSED";
+  createdAt: number;
+  liquidationPrice: number;
+};
 
 export interface BookTicker {
   e: string;

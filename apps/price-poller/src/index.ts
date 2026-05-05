@@ -51,4 +51,4 @@ setInterval(async () => {
       payload: current_price_mid,
     }),
   });
-}, 5000);
+}, 1000);

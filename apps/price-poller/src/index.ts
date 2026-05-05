@@ -6,28 +6,9 @@ import { current_price_bid_ask, current_price_mid } from "./inMemoryStore";
 import { EVENT_KINDS, QUEUES } from "@repo/types";
 import { publisher } from "@repo/redis";
 import { binanceSubscribeDataSchema } from "./types";
+import { startWebSocketServer } from "./wsServer";
 
-/////////////////////////////////////////////////////////////
-const wss = new WebSocketServer({ port: 8080 });
-
-wss.on("connection", (ws) => {
-  ws.on("error", (error) => {
-    console.error("WebSocket error", error);
-  });
-
-  setInterval(() => {
-    wss.clients.forEach((client) => {
-      client.send(
-        JSON.stringify({
-          kind: EVENT_KINDS.BID_ASK_TICK,
-          payload: current_price_bid_ask,
-        }),
-      );
-    });
-  }, 1000);
-});
-
-/////////////////////////////////////////////////////////////
+startWebSocketServer(8080);
 
 const wsconnection = new WebSocket(constants.BINANCE_URL);
 

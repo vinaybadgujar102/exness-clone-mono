@@ -73,6 +73,8 @@ export const OrderResponseSchema = z.object({
     success: z.boolean(),
     message: z.string(),
     data: z.any().optional(),
+    /** Present on successful CLOSE_ORDER (engine wallet after close). */
+    balance: z.number().optional(),
   }),
 });
 

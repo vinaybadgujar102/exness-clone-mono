@@ -14,11 +14,17 @@ import {
   closeTradeRequest,
   openTradeRequest,
 } from "../validators/tradeValidator.ts";
+import { prisma } from "../lib/prisma.ts";
 
 const tradeRouter = Router();
 
-tradeRouter.get("/api/v1/trades", async (req, res) => {
-  const { email } = req.body;
+tradeRouter.get("/trades", async (req, res) => {
+  const user = await prisma.user.findFirst({
+    where: { id: Number(req.userId) },
+  });
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
 
   const requestId = crypto.randomUUID();
   const promise = new Promise((resolve) => {
@@ -29,7 +35,7 @@ tradeRouter.get("/api/v1/trades", async (req, res) => {
     kind: JOB_KINDS.GET_OPEN_TRADES,
     requestId,
     payload: {
-      email,
+      email: user.email,
     },
   };
 
@@ -37,9 +43,26 @@ tradeRouter.get("/api/v1/trades", async (req, res) => {
     data: JSON.stringify(payload),
   });
 
-  const response = await promise;
+  const envelope = (await promise) as {
+    payload: { success: boolean; message: string; data?: unknown };
+  };
 
-  res.json(response);
+  if (!envelope.payload.success) {
+    return res.status(400).json({ error: envelope.payload.message });
+  }
+
+  const raw = envelope.payload.data;
+  let trades: unknown[] = [];
+  let balance = 10_000;
+  if (Array.isArray(raw)) {
+    trades = raw;
+  } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const d = raw as Record<string, unknown>;
+    if (Array.isArray(d.trades)) trades = d.trades;
+    if (typeof d.balance === "number") balance = d.balance;
+  }
+
+  return res.json({ data: { trades, balance } });
 });
 
 tradeRouter.post(
@@ -52,12 +75,19 @@ tradeRouter.post(
     const tradeId = crypto.randomUUID();
     // to uniquely identify our request
     const requestId = crypto.randomUUID();
-
+    const user = await prisma.user.findFirst({
+      where: {
+        id: Number(req.userId),
+      },
+    });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
     const payload: z.infer<typeof CreateOrderSchema> = {
       kind: JOB_KINDS.CREATE_ORDER,
       requestId,
       payload: {
-        email: "vinaybadgujar8@gmail.com",
+        email: user.email,
         trade: {
           id: tradeId,
           side,
@@ -84,29 +114,51 @@ tradeRouter.post(
   },
 );
 
-tradeRouter.post("/api/v1/trade/close", async (req, res) => {
-  const { tradeId } = req.body as z.infer<typeof closeTradeRequest>;
-  const requestId = crypto.randomUUID();
-  const payload: z.infer<typeof CloseOrderSchema> = {
-    kind: JOB_KINDS.CLOSE_ORDER,
-    requestId,
-    payload: {
-      email: "vinaybadgujar8@gmail.com",
-      tradeId,
-    },
-  };
-  console.log(payload);
-  const promise = new Promise((resolve) => {
-    pending.set(requestId, resolve);
-  });
+tradeRouter.post(
+  "/close",
+  requestValidator(closeTradeRequest),
+  async (req: Request, res: Response) => {
+    const { tradeId } = req.body as z.infer<typeof closeTradeRequest>;
+    const user = await prisma.user.findFirst({
+      where: { id: Number(req.userId) },
+    });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
 
-  await publisher.XADD(QUEUES.SEND_STREAM, "*", {
-    data: JSON.stringify(payload),
-  });
+    const requestId = crypto.randomUUID();
+    const payload: z.infer<typeof CloseOrderSchema> = {
+      kind: JOB_KINDS.CLOSE_ORDER,
+      requestId,
+      payload: {
+        email: user.email,
+        tradeId,
+      },
+    };
 
-  const response = await promise;
+    const promise = new Promise((resolve) => {
+      pending.set(requestId, resolve);
+    });
 
-  res.json(response);
-});
+    await publisher.XADD(QUEUES.SEND_STREAM, "*", {
+      data: JSON.stringify(payload),
+    });
+
+    const envelope = (await promise) as {
+      payload: { success: boolean; message: string; balance?: number };
+    };
+
+    if (!envelope.payload.success) {
+      return res.status(400).json({ error: envelope.payload.message });
+    }
+
+    return res.json({
+      data: {
+        message: envelope.payload.message,
+        balance: envelope.payload.balance,
+      },
+    });
+  },
+);
 
 export default tradeRouter;

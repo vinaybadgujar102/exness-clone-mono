@@ -18,7 +18,6 @@ chartRouter.get("/", async (req: Request, res: Response) => {
   };
 
   const pickedInterval = intervalMap[interval];
-  console.log(pickedInterval);
   const klines = await pool.query(
     `
     SELECT * FROM ${pickedInterval}_candles
@@ -35,7 +34,7 @@ chartRouter.get("/", async (req: Request, res: Response) => {
       close: row.close,
       high: row.high,
       low: row.low,
-      time: Math.floor(new Date(row.bucket).getTime() / 1000),
+      time: Math.floor(new Date(row.bucket).getTime() / 1000), // convert to unix timestamp
     };
   });
   return res.json({

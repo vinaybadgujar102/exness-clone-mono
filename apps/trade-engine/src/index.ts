@@ -6,13 +6,13 @@ import {
   OrderResponseSchema,
   QUEUES,
 } from "@repo/types";
-import { currentAssetPrices, users, type Trade } from "./inMemoryDb";
+import { currentAssetPrices, users } from "./inMemoryDb";
 import { z } from "zod";
 import { publisher, subscriber } from "@repo/redis";
 import {
   closeTrade,
   createTrade,
-  getOpenTradesForUser,
+  getAccountSnapshotForUser,
   handleAddUser,
   liquidateTrades,
 } from "./handlers";
@@ -39,16 +39,17 @@ async function process() {
       const data = EventSchema.parse(parsed);
 
       // update prices
-      if (data.kind === EVENT_KINDS.BID_ASK_TICK) {
+      if (data.kind === EVENT_KINDS.PRICE_TICK) {
+        console.log(data.payload);
         const payload = data.payload;
         currentAssetPrices.BTCUSDT = {
-          buyPrice: payload.BTCUSDT.bid,
-          sellPrice: payload.BTCUSDT.ask,
+          buyPrice: payload.BTCUSDT.price + 0.02 / 2,
+          sellPrice: payload.BTCUSDT.price - 0.02 / 2,
           decimal: payload.BTCUSDT.decimal,
         };
         currentAssetPrices.ETHUSDT = {
-          buyPrice: payload.ETHUSDT.bid,
-          sellPrice: payload.ETHUSDT.ask,
+          buyPrice: payload.ETHUSDT.price + 0.02 / 2,
+          sellPrice: payload.ETHUSDT.price - 0.02 / 2,
           decimal: payload.ETHUSDT.decimal,
         };
 
@@ -56,14 +57,6 @@ async function process() {
       }
       // create order
       else if (data.kind === JOB_KINDS.CREATE_ORDER) {
-        if (users.length === 0) {
-          const user = {
-            email: "vinaybadgujar8@gmail.com",
-            balance: 1000000,
-            openTrades: {},
-          };
-          users.push(user);
-        }
         const response = createTrade(data.payload.email, data);
         const payload: z.infer<typeof OrderResponseSchema> = {
           kind: JOB_KINDS.ORDER_RESPONSE,
@@ -87,7 +80,25 @@ async function process() {
         });
         // get open trades
       } else if (data.kind === JOB_KINDS.GET_OPEN_TRADES) {
-        const response = getOpenTradesForUser(data.payload.email);
+        const snap = getAccountSnapshotForUser(data.payload.email);
+        const payload: z.infer<typeof OrderResponseSchema> = {
+          kind: JOB_KINDS.ORDER_RESPONSE,
+          requestId: data.requestId,
+          payload:
+            snap === undefined
+              ? { success: false, message: "USER_NOT_FOUND" }
+              : {
+                  success: true,
+                  message: "OPEN_TRADES",
+                  data: {
+                    trades: snap.trades,
+                    balance: snap.balance,
+                  },
+                },
+        };
+        await publisher.XADD(QUEUES.RESPONSE_STREAM, "*", {
+          data: JSON.stringify(payload),
+        });
       }
       // add user
       else if (data.kind === JOB_KINDS.ADD_USER) {

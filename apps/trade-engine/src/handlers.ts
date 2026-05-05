@@ -14,6 +14,7 @@ export function createTrade(
       message: "USER_NOT_FOUND",
     };
   }
+  console.log(asset);
   const engineAsset = currentAssetPrices[asset];
   if (!engineAsset) {
     return {
@@ -67,7 +68,7 @@ export function createTrade(
 export function closeTrade(
   email: string,
   tradeId: string,
-): { success: boolean; message: string } {
+): { success: boolean; message: string; balance?: number } {
   const user = users.find((user) => user.email === email);
   if (!user) {
     return {
@@ -110,10 +111,10 @@ export function closeTrade(
   user.balance += tradeToClose.margin + pnl;
   delete user.openTrades[tradeId];
 
-  // return the trade and in backend store closed trade in db
   return {
     success: true,
     message: "TRADE_CLOSED",
+    balance: user.balance,
   };
 }
 
@@ -148,6 +149,18 @@ export function getOpenTradesForUser(email: string) {
   }
 
   return user.openTrades;
+}
+
+/** Open trades plus wallet balance (free margin) for GET_OPEN_TRADES. */
+export function getAccountSnapshotForUser(email: string):
+  | { trades: Trade[]; balance: number }
+  | undefined {
+  const user = users.find((u) => u.email === email);
+  if (!user) return undefined;
+  return {
+    trades: Object.values(user.openTrades),
+    balance: user.balance,
+  };
 }
 
 export function handleAddUser(email: string) {

@@ -3,7 +3,7 @@ import WebSocket, { WebSocketServer } from "ws";
 import { constants } from "./constants";
 import { transform } from "./utils";
 import { current_price_mid } from "./inMemoryStore";
-import { EVENT_KINDS, QUEUES } from "@repo/types";
+import { EVENT_KINDS, PUBSUB_EVENTS, QUEUES } from "@repo/types";
 import { publisher } from "@repo/redis";
 import { binanceSubscribeDataSchema } from "./types";
 import { startWebSocketServer } from "./wsServer";
@@ -38,6 +38,15 @@ wsconnection.on("message", (data) => {
 
 setInterval(async () => {
   console.log("publishing price tick", current_price_mid);
+
+  await publisher.publish(
+    PUBSUB_EVENTS.PRICE_CHANNEL,
+    JSON.stringify({
+      kind: EVENT_KINDS.PRICE_TICK,
+      payload: current_price_mid,
+    }),
+  );
+
   await publisher.XADD(QUEUES.SEND_STREAM, "*", {
     data: JSON.stringify({
       kind: EVENT_KINDS.PRICE_TICK,

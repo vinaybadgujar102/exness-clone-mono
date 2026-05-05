@@ -5,6 +5,10 @@ export enum AssetSymbols {
   BTC = "BTCUSDT",
 }
 
+export enum PUBSUB_EVENTS {
+  PRICE_CHANNEL = "PRICE_CHANNEL",
+}
+
 export enum EVENT_KINDS {
   PRICE_TICK = "PRICE_TICK",
   BID_ASK_TICK = "BID_ASK_TICK",

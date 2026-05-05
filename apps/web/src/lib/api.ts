@@ -82,6 +82,21 @@ export type OpenPositions = {
   balance: number;
 };
 
+export type ClosedTrade = {
+  id: number;
+  userId: number;
+  asset: "BTCUSDT" | "ETHUSDT";
+  side: "BUY" | "SELL";
+  entryPrice: number;
+  margin: number;
+  leverage: number;
+  notional: number;
+  quantity: number;
+  pnl: number;
+  liquidationPrice: number;
+  createdAt: string;
+};
+
 /** GET /api/v1/trade/trades — requires auth cookie */
 export async function getOpenPositions(): Promise<OpenPositions> {
   const res = await fetch(`${getApiBaseUrl()}/api/v1/trade/trades`, {
@@ -112,6 +127,26 @@ export async function getOpenPositions(): Promise<OpenPositions> {
     return { trades, balance };
   }
   return { trades: [], balance: 10_000 };
+}
+
+/** GET /api/v1/trade/trades/closed — requires auth cookie */
+export async function getClosedPositions(): Promise<ClosedTrade[]> {
+  const res = await fetch(`${getApiBaseUrl()}/api/v1/trade/trades/closed`, {
+    method: "GET",
+    credentials: "include",
+  });
+
+  const data = await parseJsonSafe(res);
+
+  if (!res.ok) {
+    const msg = extractErrorMessage(data) ?? `Request failed (${res.status})`;
+    throw new Error(msg);
+  }
+
+  if (!data || typeof data !== "object") return [];
+  const inner = (data as Record<string, unknown>).data;
+  if (!Array.isArray(inner)) return [];
+  return inner as ClosedTrade[];
 }
 
 /** POST /api/v1/trade/close — requires auth cookie */

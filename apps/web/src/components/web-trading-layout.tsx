@@ -22,7 +22,7 @@ import {
 import { useAuthUiStore } from "@/stores/auth-ui-store";
 import { resetSessionScopedStores } from "@/stores/session-reset";
 import { useWebTradingUiStore } from "@/stores/webtrading-ui-store";
-import { AssetSymbols, BidAskTickSchema } from "@repo/types";
+import { AssetSymbols, BidAskTickSchema, EVENT_KINDS } from "@repo/types";
 
 type Instrument = {
   sym: AssetSymbols;
@@ -41,6 +41,19 @@ function initialQuotes(): Record<
   return {
     [AssetSymbols.BTC]: { bid: 0, ask: 0, up: true },
     [AssetSymbols.ETH]: { bid: 0, ask: 0, up: true },
+  };
+}
+
+function withEngineSpread(midPrice: number, decimal: number) {
+  const scale = 10 ** decimal;
+  const priceInt = Math.round(midPrice * scale);
+  const spreadInt = Math.round(0.01 * scale);
+  const askInt = priceInt + spreadInt;
+  const bidInt = priceInt - spreadInt;
+
+  return {
+    bid: bidInt / scale,
+    ask: askInt / scale,
   };
 }
 
@@ -142,6 +155,11 @@ export function WebTradingLayout() {
   useEffect(() => {
     const url = process.env.NEXT_PUBLIC_PRICE_WS_URL ?? "ws://localhost:8080";
     const socket = new WebSocket(url);
+    socket.onopen = () => {
+      for (const sym of TRADABLE) {
+        socket.send(JSON.stringify({ type: "SUBSCRIBE", symbol: sym }));
+      }
+    };
 
     socket.onmessage = (event) => {
       let raw: unknown;
@@ -152,25 +170,65 @@ export function WebTradingLayout() {
       }
 
       const parsed = BidAskTickSchema.safeParse(raw);
-      if (!parsed.success) return;
+      if (parsed.success) {
+        const { payload } = parsed.data;
 
-      const { payload } = parsed.data;
+        setQuotes((prev) => {
+          const next = { ...prev };
+          for (const sym of TRADABLE) {
+            const tick = payload[sym];
+            if (tick == null) continue;
+            const { bid, ask } = tick;
+            const oldBid = prev[sym].bid;
+            const up = oldBid === 0 ? true : bid >= oldBid;
+            next[sym] = { bid, ask, up };
+          }
+          return next;
+        });
+        return;
+      }
 
+      if (
+        typeof raw !== "object" ||
+        raw == null ||
+        !("kind" in raw) ||
+        raw.kind !== EVENT_KINDS.BID_ASK_TICK ||
+        !("payload" in raw) ||
+        typeof raw.payload !== "object" ||
+        raw.payload == null ||
+        !("symbol" in raw.payload) ||
+        !("price" in raw.payload) ||
+        !("decimal" in raw.payload)
+      ) {
+        return;
+      }
+
+      const { symbol, price, decimal } = raw.payload as {
+        symbol: string;
+        price: number;
+        decimal: number;
+      };
+      if (!Object.values(AssetSymbols).includes(symbol as AssetSymbols)) return;
+      if (typeof price !== "number" || typeof decimal !== "number") return;
+
+      const spreadQuote = withEngineSpread(price, decimal);
+      const sym = symbol as AssetSymbols;
       setQuotes((prev) => {
-        const next = { ...prev };
-        for (const sym of TRADABLE) {
-          const tick = payload[sym];
-          if (tick == null) continue;
-          const { bid, ask } = tick;
-          const oldBid = prev[sym].bid;
-          const up = oldBid === 0 ? true : bid >= oldBid;
-          next[sym] = { bid, ask, up };
-        }
-        return next;
+        const oldBid = prev[sym].bid;
+        const up = oldBid === 0 ? true : spreadQuote.bid >= oldBid;
+        return {
+          ...prev,
+          [sym]: { bid: spreadQuote.bid, ask: spreadQuote.ask, up },
+        };
       });
     };
 
     return () => {
+      if (socket.readyState === WebSocket.OPEN) {
+        for (const sym of TRADABLE) {
+          socket.send(JSON.stringify({ type: "UNSUBSCRIBE", symbol: sym }));
+        }
+      }
       socket.close();
     };
   }, []);

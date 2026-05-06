@@ -138,7 +138,7 @@ authRouter.get("/login/post", async (req: Request, res: Response) => {
     kind: JOB_KINDS.ADD_USER,
     requestId,
     payload: {
-      email: user.email,
+      id: user.id,
     },
   };
 

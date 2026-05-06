@@ -6,22 +6,27 @@ import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { ConflictNotice } from "@/components/state/conflict-notice";
-import { StaleIndicator } from "@/components/state/stale-indicator";
+import { AccountSummary } from "@/components/account/AccountSummary";
+import { TradingMetricsPanel } from "@/components/trading/TradingMetricsPanel";
 import { WebTradingChart } from "@/components/web-trading-chart";
-import {
-  postLogout,
-  type OpenTrade,
-} from "@/lib/api";
+import { postLogout, type ClosedTrade, type OpenTrade } from "@/lib/api";
 import { resolveServerWinsConflict } from "@/lib/query/conflict-resolution";
-import { invalidateOpenPositions } from "@/lib/query/invalidation-rules";
 import {
+  invalidateClosedPositions,
+  invalidateOpenPositions,
+} from "@/lib/query/invalidation-rules";
+import {
+  useClosedPositionsQuery,
   useCloseTradeMutation,
   useOpenPositionsQuery,
   useOpenTradeMutation,
 } from "@/lib/query/use-webtrading-queries";
+import { formatUsd2 } from "@/lib/tradingMetrics/formatting";
+import { useTradingMetrics } from "@/lib/tradingMetrics/useTradingMetrics";
 import { useAuthUiStore } from "@/stores/auth-ui-store";
 import { resetSessionScopedStores } from "@/stores/session-reset";
 import { useWebTradingUiStore } from "@/stores/webtrading-ui-store";
+import { enginePriceToUsd } from "@/lib/tradingMetrics/enginePrice";
 import { AssetSymbols, BidAskTickSchema, EVENT_KINDS } from "@repo/types";
 
 type Instrument = {
@@ -45,15 +50,15 @@ function initialQuotes(): Record<
 }
 
 function withEngineSpread(midPrice: number, decimal: number) {
-  const scale = 10 ** decimal;
-  const priceInt = Math.round(midPrice * scale);
-  const spreadInt = Math.round(0.01 * scale);
+  const priceScale = 10 ** decimal;
+  const priceInt = Math.round(midPrice * priceScale);
+  const spreadInt = Math.round(0.01 * priceScale);
   const askInt = priceInt + spreadInt;
   const bidInt = priceInt - spreadInt;
 
   return {
-    bid: bidInt / scale,
-    ask: askInt / scale,
+    bid: bidInt / priceScale,
+    ask: askInt / priceScale,
   };
 }
 
@@ -65,11 +70,15 @@ function fmt(n: number) {
   return n.toFixed(5);
 }
 
-/** USD-style amounts (balance, margin, uPnL): always 2 fraction digits. */
-function fmtUsd2(n: number) {
-  return n.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+function fmtClosedAt(dateIso: string) {
+  const t = Date.parse(dateIso);
+  if (Number.isNaN(t)) return "—";
+  return new Date(t).toLocaleString("en-US", {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
   });
 }
 
@@ -78,14 +87,15 @@ function fmtUsd2(n: number) {
  * long exits at bid, short exits at ask.
  */
 function unrealizedPnlUsd(
-  trade: Pick<OpenTrade, "side" | "entryPrice" | "quantity">,
+  trade: Pick<OpenTrade, "asset" | "side" | "entryPrice" | "quantity">,
   bid: number,
   ask: number,
 ): number | null {
   if (bid <= 0 || ask <= 0) return null;
+  const entryUsd = enginePriceToUsd(trade.asset, trade.entryPrice);
   const mark = trade.side === "BUY" ? bid : ask;
   const direction = trade.side === "BUY" ? 1 : -1;
-  return (mark - trade.entryPrice) * direction * trade.quantity;
+  return (mark - entryUsd) * direction * trade.quantity;
 }
 
 /** API `asset` enum matches `AssetSymbols` values (see apps/api openTradeRequest). */
@@ -127,13 +137,16 @@ export function WebTradingLayout() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [tradeMessage, setTradeMessage] = useState<string | null>(null);
   const [tradesError, setTradesError] = useState<string | null>(null);
-  const [localDraftTradeId, setLocalDraftTradeId] = useState<string | null>(null);
+  const [localDraftTradeId, setLocalDraftTradeId] = useState<string | null>(
+    null,
+  );
   const authConflictNotice = useAuthUiStore((s) => s.lastConflictNotice);
   const setAuthConflictNotice = useAuthUiStore((s) => s.setLastConflictNotice);
   const [closingTradeIds, setClosingTradeIds] = useState<Set<string>>(
     () => new Set(),
   );
   const openPositionsQuery = useOpenPositionsQuery(posTab === "open");
+  const closedPositionsQuery = useClosedPositionsQuery(posTab === "closed");
   const openTradeMutation = useOpenTradeMutation();
   const closeTradeMutation = useCloseTradeMutation();
   const tradeBusy = openTradeMutation.isPending;
@@ -145,6 +158,10 @@ export function WebTradingLayout() {
     [openPositionsQuery.data?.trades],
   );
   const accountBalance = openPositionsQuery.data?.balance ?? null;
+  const closedTrades = useMemo(
+    () => (closedPositionsQuery.data ?? []) as ClosedTrade[],
+    [closedPositionsQuery.data],
+  );
 
   const filteredTradable = useMemo(
     () =>
@@ -235,8 +252,13 @@ export function WebTradingLayout() {
 
   const refreshOpenTrades = useCallback(async () => {
     setTradesError(null);
-    await invalidateOpenPositions(queryClient);
-  }, [queryClient]);
+    await Promise.all([
+      invalidateOpenPositions(queryClient),
+      invalidateClosedPositions(queryClient),
+      openPositionsQuery.refetch(),
+      closedPositionsQuery.refetch(),
+    ]);
+  }, [closedPositionsQuery, openPositionsQuery, queryClient]);
 
   const active = useMemo((): Instrument => {
     const q = quotes[selectedAsset];
@@ -255,27 +277,20 @@ export function WebTradingLayout() {
   );
   const canPlaceApiTrade = apiAsset !== null;
 
-  const marginInUse = useMemo(
-    () => openTrades.reduce((s, t) => s + t.margin, 0),
-    [openTrades],
-  );
+  const { metrics, isStale } = useTradingMetrics({
+    accountBalance,
+    openTrades,
+    quotes,
+  });
 
-  const unrealizedTotalUsd = useMemo(() => {
-    let sum = 0;
-    for (const t of openTrades) {
-      const sym = t.asset as AssetSymbols;
-      const q = quotes[sym];
-      if (q == null || q.bid <= 0 || q.ask <= 0) continue;
-      const up = unrealizedPnlUsd(t, q.bid, q.ask);
-      if (up != null) sum += up;
-    }
-    return sum;
-  }, [openTrades, quotes]);
-
-  const equityUsd = useMemo(() => {
-    if (accountBalance == null) return null;
-    return accountBalance + marginInUse + unrealizedTotalUsd;
-  }, [accountBalance, marginInUse, unrealizedTotalUsd]);
+  const equityText =
+    metrics == null ? "—" : `${formatUsd2(metrics.equity)} USD`;
+  const balanceText =
+    metrics == null ? "—" : `${formatUsd2(metrics.balance)} USD`;
+  const usedMarginText =
+    metrics == null ? "—" : `${formatUsd2(metrics.usedMargin)} USD`;
+  const remainingMarginText =
+    metrics == null ? "—" : `${formatUsd2(metrics.remainingMargin)} USD`;
 
   useEffect(() => {
     if (!localDraftTradeId || !openPositionsQuery.data) return;
@@ -369,9 +384,7 @@ export function WebTradingLayout() {
           <span className="hidden text-xs text-[#8b95a8] md:inline">
             Demo Standard
           </span>
-          <span className="text-xs font-medium tabular-nums">
-            {equityUsd == null ? "—" : `${fmtUsd2(equityUsd)} USD`}
-          </span>
+          <TradingMetricsPanel equityText={equityText} isStale={isStale} />
           <button
             type="button"
             onClick={() => void onLogout()}
@@ -476,11 +489,6 @@ export function WebTradingLayout() {
               <span className="ml-auto hidden rounded border border-[#2a2e39] px-2 py-0.5 sm:inline">
                 Save
               </span>
-              <StaleIndicator
-                isStale={openPositionsQuery.isStale}
-                isFetching={openPositionsQuery.isFetching}
-                onRefresh={() => void refreshOpenTrades()}
-              />
             </div>
             <div className="flex min-h-0 min-w-0 flex-1">
               <div className="hidden w-9 shrink-0 flex-col gap-0.5 border-r border-[#2a2e39] bg-[#14171f] py-1 xl:flex">
@@ -531,19 +539,91 @@ export function WebTradingLayout() {
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
               {posTab === "closed" ? (
-                <div className="flex h-full flex-col items-center justify-center gap-2 text-[#6b7280]">
-                  <svg
-                    className="h-10 w-10 opacity-30"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.25"
-                    viewBox="0 0 24 24"
-                    aria-hidden
-                  >
-                    <path d="M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2M4 9h16v10a2 2 0 01-2 2H6a2 2 0 01-2-2V9z" />
-                  </svg>
-                  <p className="text-sm">No closed positions</p>
-                </div>
+                closedPositionsQuery.isLoading ? (
+                  <p className="px-3 py-6 text-center text-sm text-[#8b95a8]">
+                    Loading closed positions…
+                  </p>
+                ) : tradesError ? (
+                  <p className="px-3 py-6 text-center text-sm text-[#ef5350]">
+                    {tradesError}
+                  </p>
+                ) : closedTrades.length === 0 ? (
+                  <div className="flex h-full flex-col items-center justify-center gap-2 text-[#6b7280]">
+                    <svg
+                      className="h-10 w-10 opacity-30"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.25"
+                      viewBox="0 0 24 24"
+                      aria-hidden
+                    >
+                      <path d="M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2M4 9h16v10a2 2 0 01-2 2H6a2 2 0 01-2-2V9z" />
+                    </svg>
+                    <p className="text-sm">No closed positions</p>
+                  </div>
+                ) : (
+                  <table className="w-full border-collapse text-left text-[11px]">
+                    <thead className="sticky top-0 z-[1] bg-[#14171f] text-[10px] font-medium uppercase tracking-wide text-[#6b7280]">
+                      <tr className="border-b border-[#2a2e39]">
+                        <th className="px-2 py-2">Symbol</th>
+                        <th className="px-2 py-2">Side</th>
+                        <th className="px-2 py-2 text-right">Entry</th>
+                        <th className="px-2 py-2 text-right">Close</th>
+                        <th className="px-2 py-2 text-right">Margin</th>
+                        <th className="px-2 py-2 text-right">Lev</th>
+                        <th className="px-2 py-2 text-right">Qty</th>
+                        <th className="px-2 py-2 text-right">PnL</th>
+                        <th className="px-2 py-2 text-right">Closed</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {closedTrades.map((t) => (
+                        <tr
+                          key={String(t.id)}
+                          className="border-b border-[#1f232d] hover:bg-[#1a1d26]"
+                        >
+                          <td className="px-2 py-2 font-medium text-white">
+                            {t.asset.replace("USDT", "")}
+                          </td>
+                          <td
+                            className={`px-2 py-2 font-medium ${
+                              t.side === "BUY"
+                                ? "text-[#26c281]"
+                                : "text-[#ef5350]"
+                            }`}
+                          >
+                            {t.side}
+                          </td>
+                          <td className="px-2 py-2 text-right font-mono tabular-nums text-[#e8ecf4]">
+                            {fmt(enginePriceToUsd(t.asset, t.entryPrice))}
+                          </td>
+                          <td className="px-2 py-2 text-right font-mono tabular-nums text-[#e8ecf4]">
+                            {fmt(enginePriceToUsd(t.asset, t.liquidationPrice))}
+                          </td>
+                          <td className="px-2 py-2 text-right font-mono tabular-nums text-[#e8ecf4]">
+                            {fmt(t.margin)}
+                          </td>
+                          <td className="px-2 py-2 text-right font-mono tabular-nums text-[#8b95a8]">
+                            {t.leverage}×
+                          </td>
+                          <td className="px-2 py-2 text-right font-mono tabular-nums text-[#8b95a8]">
+                            {Number(t.quantity).toFixed(4)}
+                          </td>
+                          <td
+                            className={`px-2 py-2 text-right font-mono tabular-nums ${
+                              t.pnl >= 0 ? "text-[#26c281]" : "text-[#ef5350]"
+                            }`}
+                          >
+                            {formatUsd2(t.pnl)}
+                          </td>
+                          <td className="px-2 py-2 text-right font-mono tabular-nums text-[#8b95a8]">
+                            {fmtClosedAt(t.createdAt)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
               ) : openPositionsQuery.isLoading ? (
                 <p className="px-3 py-6 text-center text-sm text-[#8b95a8]">
                   Loading positions…
@@ -585,75 +665,73 @@ export function WebTradingLayout() {
                       const sym = t.asset as AssetSymbols;
                       const q = quotes[sym];
                       const upnl =
-                        q != null
-                          ? unrealizedPnlUsd(t, q.bid, q.ask)
-                          : null;
+                        q != null ? unrealizedPnlUsd(t, q.bid, q.ask) : null;
                       return (
-                      <tr
-                        key={String(t.id)}
-                        className="border-b border-[#1f232d] hover:bg-[#1a1d26]"
-                      >
-                        <td className="px-2 py-2 font-medium text-white">
-                          {t.asset.replace("USDT", "")}
-                        </td>
-                        <td
-                          className={`px-2 py-2 font-medium ${
-                            t.side === "BUY"
-                              ? "text-[#26c281]"
-                              : "text-[#ef5350]"
-                          }`}
+                        <tr
+                          key={String(t.id)}
+                          className="border-b border-[#1f232d] hover:bg-[#1a1d26]"
                         >
-                          {t.side}
-                        </td>
-                        <td className="px-2 py-2 text-right font-mono tabular-nums text-[#e8ecf4]">
-                          {fmt(t.entryPrice)}
-                        </td>
-                        <td className="px-2 py-2 text-right font-mono tabular-nums text-[#e8ecf4]">
-                          {fmt(t.margin)}
-                        </td>
-                        <td className="px-2 py-2 text-right font-mono tabular-nums text-[#8b95a8]">
-                          {t.leverage}×
-                        </td>
-                        <td className="px-2 py-2 text-right font-mono tabular-nums text-[#8b95a8]">
-                          {t.quantity.toFixed(4)}
-                        </td>
-                        <td
-                          className={`px-2 py-2 text-right font-mono tabular-nums ${
-                            upnl == null
-                              ? "text-[#6b7280]"
-                              : upnl >= 0
+                          <td className="px-2 py-2 font-medium text-white">
+                            {t.asset.replace("USDT", "")}
+                          </td>
+                          <td
+                            className={`px-2 py-2 font-medium ${
+                              t.side === "BUY"
                                 ? "text-[#26c281]"
                                 : "text-[#ef5350]"
-                          }`}
-                        >
-                          {upnl == null ? "—" : fmtUsd2(upnl)}
-                        </td>
-                        <td className="px-0 py-1 text-center align-middle">
-                          <button
-                            type="button"
-                            onClick={() => void handleCloseTrade(t.id)}
-                            disabled={closingTradeIds.has(t.id)}
-                            title="Close position"
-                            aria-label={`Close position ${t.asset.replace("USDT", "")} ${t.side}`}
-                            className="inline-flex h-7 w-7 items-center justify-center rounded text-[#6b7280] transition hover:bg-[#2a2e39] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            }`}
                           >
-                            <svg
-                              className="h-3.5 w-3.5"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              viewBox="0 0 24 24"
-                              aria-hidden
+                            {t.side}
+                          </td>
+                          <td className="px-2 py-2 text-right font-mono tabular-nums text-[#e8ecf4]">
+                            {fmt(enginePriceToUsd(t.asset, t.entryPrice))}
+                          </td>
+                          <td className="px-2 py-2 text-right font-mono tabular-nums text-[#e8ecf4]">
+                            {fmt(t.margin)}
+                          </td>
+                          <td className="px-2 py-2 text-right font-mono tabular-nums text-[#8b95a8]">
+                            {t.leverage}×
+                          </td>
+                          <td className="px-2 py-2 text-right font-mono tabular-nums text-[#8b95a8]">
+                            {t.quantity.toFixed(4)}
+                          </td>
+                          <td
+                            className={`px-2 py-2 text-right font-mono tabular-nums ${
+                              upnl == null
+                                ? "text-[#6b7280]"
+                                : upnl >= 0
+                                  ? "text-[#26c281]"
+                                  : "text-[#ef5350]"
+                            }`}
+                          >
+                            {upnl == null ? "—" : formatUsd2(upnl)}
+                          </td>
+                          <td className="px-0 py-1 text-center align-middle">
+                            <button
+                              type="button"
+                              onClick={() => void handleCloseTrade(t.id)}
+                              disabled={closingTradeIds.has(t.id)}
+                              title="Close position"
+                              aria-label={`Close position ${t.asset.replace("USDT", "")} ${t.side}`}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded text-[#6b7280] transition hover:bg-[#2a2e39] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                             >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M6 18L18 6M6 6l12 12"
-                              />
-                            </svg>
-                          </button>
-                        </td>
-                      </tr>
+                              <svg
+                                className="h-3.5 w-3.5"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                viewBox="0 0 24 24"
+                                aria-hidden
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="M6 18L18 6M6 6l12 12"
+                                />
+                              </svg>
+                            </button>
+                          </td>
+                        </tr>
                       );
                     })}
                   </tbody>
@@ -666,28 +744,13 @@ export function WebTradingLayout() {
                 onDismiss={() => setAuthConflictNotice(null)}
               />
             </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-[#2a2e39] bg-[#14171f] px-3 py-1.5 text-[10px] text-[#8b95a8]">
-              <span>
-                Equity{" "}
-                <span className="text-white tabular-nums">
-                  {equityUsd == null ? "—" : `${fmtUsd2(equityUsd)} USD`}
-                </span>
-              </span>
-              <span>
-                Balance{" "}
-                <span className="text-white tabular-nums">
-                  {accountBalance == null
-                    ? "—"
-                    : `${fmtUsd2(accountBalance)} USD`}
-                </span>
-              </span>
-              <span>
-                Margin{" "}
-                <span className="text-white tabular-nums">
-                  {`${fmtUsd2(marginInUse)} USD`}
-                </span>
-              </span>
-            </div>
+            <AccountSummary
+              equityText={equityText}
+              balanceText={balanceText}
+              usedMarginText={usedMarginText}
+              remainingMarginText={remainingMarginText}
+              isStale={isStale}
+            />
           </div>
         </div>
 

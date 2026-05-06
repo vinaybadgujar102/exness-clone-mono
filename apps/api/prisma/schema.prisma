@@ -16,6 +16,7 @@ model User {
   id          Int          @id @default(autoincrement())
   email       String       @unique
   magicTokens MagicToken[]
+  pastTrades  PastTrades[]
 }
 
 model MagicToken {
@@ -26,4 +27,38 @@ model MagicToken {
   used        Boolean  @default(false)
   expiresAt   DateTime
   createdAt   DateTime @default(now())
+}
+
+enum PrismaAssetSymbols {
+  ETHUSDT
+  BTCUSDT
+}
+
+enum OrderSide {
+  BUY
+  SELL
+}
+
+model PastTrades {
+  id               Int                @id @default(autoincrement())
+  asset            PrismaAssetSymbols
+  side             OrderSide
+  entryPrice       Int
+  margin           Int
+  leverage         Int
+  notional         Int
+  quantity         Int
+  pnl              Int
+  createdAt        DateTime
+  liquidationPrice Int
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id])
+}
+
+model Assets {
+  id      Int                @id @default(autoincrement())
+  symbol  PrismaAssetSymbols
+  decimal Int
+  spread  Int                @default(2)
 }

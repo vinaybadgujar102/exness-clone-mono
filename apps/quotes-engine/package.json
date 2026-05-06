@@ -1,0 +1,17 @@
+{
+  "name": "quotes-engine",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "redis": "^5.12.1",
+    "@repo/types": "workspace:*",
+    "@repo/redis": "workspace:*"
+  }
+}

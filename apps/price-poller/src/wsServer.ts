@@ -1,8 +1,28 @@
-import { AssetSymbols, EVENT_KINDS } from "@repo/types";
+import { ASSETSCONFIG, AssetSymbols, EVENT_KINDS } from "@repo/types";
 import { WebSocketServer, WebSocket } from "ws";
 import { current_price_bid_ask } from "./inMemoryStore";
 
 const subscriptions = new Map<string, Set<WebSocket>>();
+
+function bidAskTickPayload(): Record<
+  AssetSymbols,
+  { bid: number; ask: number; decimal: number }
+> {
+  const payload = {} as Record<
+    AssetSymbols,
+    { bid: number; ask: number; decimal: number }
+  >;
+  for (const sym of Object.values(AssetSymbols)) {
+    const row = current_price_bid_ask[sym];
+    const scale = ASSETSCONFIG[sym].priceScale;
+    payload[sym] = {
+      bid: row.bid / scale,
+      ask: row.ask / scale,
+      decimal: row.decimal,
+    };
+  }
+  return payload;
+}
 
 export function startWebSocketServer(port: number) {
   const wss = new WebSocketServer({ port });
@@ -36,29 +56,25 @@ export function startWebSocketServer(port: number) {
         sub.delete(ws);
       }
     });
+  });
 
-    setInterval(() => {
-      for (const [symbol, clients] of subscriptions.entries()) {
-        const price = current_price_bid_ask[symbol as AssetSymbols];
+  setInterval(() => {
+    const message = JSON.stringify({
+      kind: EVENT_KINDS.BID_ASK_TICK,
+      payload: bidAskTickPayload(),
+    });
 
-        if (!price) continue;
-
-        for (const client of clients) {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(
-              JSON.stringify({
-                kind: EVENT_KINDS.BID_ASK_TICK,
-                payload: {
-                  symbol,
-                  ...price,
-                },
-              }),
-            );
-          }
+    const notified = new Set<WebSocket>();
+    for (const clients of subscriptions.values()) {
+      for (const client of clients) {
+        if (notified.has(client)) continue;
+        notified.add(client);
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(message);
         }
       }
-    }, 1000);
-  });
+    }
+  }, 1000);
 
   return wss;
 }

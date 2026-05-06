@@ -6,6 +6,7 @@ export const queryKeys = {
   trades: {
     root: ["trades"] as const,
     openPositions: () => ["trades", "open-positions"] as const,
+    closedPositions: () => ["trades", "closed-positions"] as const,
   },
   chart: {
     root: ["chart"] as const,

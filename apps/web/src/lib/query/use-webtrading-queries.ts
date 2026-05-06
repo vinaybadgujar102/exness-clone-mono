@@ -1,12 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  getClosedPositions,
   getOpenPositions,
   postCloseTrade,
   postOpenTrade,
   type OpenTradePayload,
 } from "@/lib/api";
-import { invalidateOpenPositions } from "@/lib/query/invalidation-rules";
+import {
+  invalidateClosedPositions,
+  invalidateOpenPositions,
+} from "@/lib/query/invalidation-rules";
 import { queryKeys } from "@/lib/query/query-keys";
 
 export function useOpenPositionsQuery(enabled: boolean) {
@@ -27,12 +31,23 @@ export function useOpenTradeMutation() {
   });
 }
 
+export function useClosedPositionsQuery(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.trades.closedPositions(),
+    queryFn: getClosedPositions,
+    enabled,
+  });
+}
+
 export function useCloseTradeMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (tradeId: string) => postCloseTrade(tradeId),
     onSuccess: async () => {
-      await invalidateOpenPositions(queryClient);
+      await Promise.all([
+        invalidateOpenPositions(queryClient),
+        invalidateClosedPositions(queryClient),
+      ]);
     },
   });
 }

@@ -6,7 +6,7 @@ import {
   OrderResponseSchema,
   QUEUES,
 } from "@repo/types";
-import { currentAssetPrices, users } from "./inMemoryDb";
+import { currentAssetPrices } from "./inMemoryDb";
 import { z } from "zod";
 import { publisher, subscriber } from "@repo/redis";
 import {
@@ -39,30 +39,19 @@ async function process() {
       const data = EventSchema.parse(parsed);
 
       // update prices
-      if (data.kind === EVENT_KINDS.PRICE_TICK) {
-        function handlePriceTick() {
-          for (const [key, value] of Object.entries(data.payload)) {
-            const scale = 10 ** value.decimal;
-            const priceInt = Math.round(value.price * scale);
-            const spreadInt = Math.round(0.01 * scale);
-
-            const buyInt = priceInt + spreadInt;
-            const sellInt = priceInt - spreadInt;
-
-            currentAssetPrices[key as AssetSymbols] = {
-              buyPrice: buyInt / scale,
-              sellPrice: sellInt / scale,
-              decimal: value.decimal,
-            };
-          }
+      if (data.kind === EVENT_KINDS.BID_ASK_TICK) {
+        for (const [key, value] of Object.entries(data.payload)) {
+          currentAssetPrices[key as AssetSymbols] = {
+            decimal: value.decimal,
+            buyPrice: value.bid,
+            sellPrice: value.ask,
+          };
         }
-        console.log(currentAssetPrices);
-        handlePriceTick();
         liquidateTrades();
       }
       // create order
       else if (data.kind === JOB_KINDS.CREATE_ORDER) {
-        const response = createTrade(data.payload.email, data);
+        const response = createTrade(data.payload.id, data);
         const payload: z.infer<typeof OrderResponseSchema> = {
           kind: JOB_KINDS.ORDER_RESPONSE,
           requestId: data.requestId,
@@ -73,8 +62,7 @@ async function process() {
         });
         // close order
       } else if (data.kind === JOB_KINDS.CLOSE_ORDER) {
-        console.log("here");
-        const response = closeTrade(data.payload.email, data.payload.tradeId);
+        const response = closeTrade(data.payload.id, data.payload.tradeId);
         const payload = {
           kind: JOB_KINDS.ORDER_RESPONSE,
           requestId: data.requestId,
@@ -85,7 +73,7 @@ async function process() {
         });
         // get open trades
       } else if (data.kind === JOB_KINDS.GET_OPEN_TRADES) {
-        const snap = getAccountSnapshotForUser(data.payload.email);
+        const snap = getAccountSnapshotForUser(data.payload.id);
         const payload: z.infer<typeof OrderResponseSchema> = {
           kind: JOB_KINDS.ORDER_RESPONSE,
           requestId: data.requestId,
@@ -107,7 +95,7 @@ async function process() {
       }
       // add user
       else if (data.kind === JOB_KINDS.ADD_USER) {
-        const response = handleAddUser(data.payload.email);
+        const response = handleAddUser(data.payload.id);
         const payload = {
           kind: JOB_KINDS.ORDER_RESPONSE,
           requestId: data.requestId,

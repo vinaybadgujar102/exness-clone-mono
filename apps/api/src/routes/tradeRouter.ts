@@ -6,6 +6,7 @@ import {
   GetOpenOrdersSchema,
   JOB_KINDS,
   QUEUES,
+  type Trade,
 } from "@repo/types";
 import { publisher } from "@repo/redis";
 import type z from "zod";
@@ -35,7 +36,7 @@ tradeRouter.get("/trades", async (req, res) => {
     kind: JOB_KINDS.GET_OPEN_TRADES,
     requestId,
     payload: {
-      email: user.email,
+      id: user.id,
     },
   };
 
@@ -65,6 +66,23 @@ tradeRouter.get("/trades", async (req, res) => {
   return res.json({ data: { trades, balance } });
 });
 
+tradeRouter.get("/trades/closed", async (req: Request, res: Response) => {
+  const user = await prisma.user.findFirst({
+    where: { id: Number(req.userId) },
+  });
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  const closedTrades = await prisma.pastTrades.findMany({
+    where: {
+      userId: user.id,
+    },
+  });
+
+  return res.json({ data: closedTrades });
+});
+
 tradeRouter.post(
   "/trade",
   requestValidator(openTradeRequest),
@@ -87,7 +105,7 @@ tradeRouter.post(
       kind: JOB_KINDS.CREATE_ORDER,
       requestId,
       payload: {
-        email: user.email,
+        id: user.id,
         trade: {
           id: tradeId,
           side,
@@ -131,7 +149,7 @@ tradeRouter.post(
       kind: JOB_KINDS.CLOSE_ORDER,
       requestId,
       payload: {
-        email: user.email,
+        id: user.id,
         tradeId,
       },
     };
@@ -145,8 +163,31 @@ tradeRouter.post(
     });
 
     const envelope = (await promise) as {
-      payload: { success: boolean; message: string; balance?: number };
+      payload: {
+        success: boolean;
+        message: string;
+        data?: Trade;
+        balance?: number;
+      };
     };
+
+    if (envelope.payload.data) {
+      await prisma.pastTrades.create({
+        data: {
+          userId: user.id,
+          asset: envelope.payload.data.asset,
+          side: envelope.payload.data.side,
+          entryPrice: envelope.payload.data.entryPrice,
+          margin: envelope.payload.data.margin,
+          leverage: envelope.payload.data.leverage,
+          notional: envelope.payload.data.notional,
+          quantity: envelope.payload.data.quantity,
+          pnl: envelope.payload.data.pnl,
+          createdAt: new Date(),
+          liquidationPrice: envelope.payload.data.liquidationPrice,
+        },
+      });
+    }
 
     if (!envelope.payload.success) {
       return res.status(400).json({ error: envelope.payload.message });
@@ -155,6 +196,7 @@ tradeRouter.post(
     return res.json({
       data: {
         message: envelope.payload.message,
+        data: envelope.payload.data,
         balance: envelope.payload.balance,
       },
     });

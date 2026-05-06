@@ -7,6 +7,7 @@ export enum AssetSymbols {
 
 export enum PUBSUB_EVENTS {
   PRICE_CHANNEL = "PRICE_CHANNEL",
+  TO_TRADE_ENGINE = "TO_TRADE_ENGINE",
 }
 
 export enum EVENT_KINDS {
@@ -159,3 +160,24 @@ export interface CurrentBuySellPrice {
 export type TradeEnginePrices = Partial<
   Record<AssetSymbols, CurrentBuySellPrice>
 >;
+
+export type AssetConfig = {
+  symbol: AssetSymbols;
+  priceScale: number;
+  quantityScale: number;
+  spread: number;
+};
+export const ASSETSCONFIG: Record<AssetSymbols, AssetConfig> = {
+  BTCUSDT: {
+    symbol: AssetSymbols.BTC,
+    priceScale: 100,
+    quantityScale: 1000000,
+    spread: 50,
+  },
+  ETHUSDT: {
+    symbol: AssetSymbols.ETH,
+    priceScale: 100,
+    quantityScale: 1000000,
+    spread: 20,
+  },
+};

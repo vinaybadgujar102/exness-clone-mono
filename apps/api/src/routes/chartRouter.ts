@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { pool } from "../lib/timescaledb";
+import { ASSETSCONFIG, AssetSymbols } from "@repo/types";
 
 const chartRouter = Router();
 
@@ -28,15 +29,18 @@ chartRouter.get("/", async (req: Request, res: Response) => {
     [symbol, limit],
   );
 
+  const priceScale = ASSETSCONFIG[symbol as AssetSymbols].priceScale;
+
   const data = klines.rows.map((row) => {
     return {
-      open: row.open,
-      close: row.close,
-      high: row.high,
-      low: row.low,
-      time: Math.floor(new Date(row.bucket).getTime() / 1000), // convert to unix timestamp
+      open: row.open / priceScale,
+      close: row.close / priceScale,
+      high: row.high / priceScale,
+      low: row.low / priceScale,
+      time: Math.floor(new Date(row.bucket).getTime() / 1000),
     };
   });
+
   return res.json({
     data: data.reverse(),
   });

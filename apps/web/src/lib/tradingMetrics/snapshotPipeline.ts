@@ -1,4 +1,5 @@
 import type { OpenTrade } from "@/lib/api";
+import { enginePriceToUsd } from "@/lib/tradingMetrics/enginePrice";
 import { roundUsd2 } from "@/lib/tradingMetrics/formatting";
 import type {
   CompleteSnapshotMetrics,
@@ -8,14 +9,15 @@ import type {
 import { AssetSymbols } from "@repo/types";
 
 function unrealizedPnlUsd(
-  trade: Pick<OpenTrade, "side" | "entryPrice" | "quantity">,
+  trade: Pick<OpenTrade, "asset" | "side" | "entryPrice" | "quantity">,
   bid: number,
   ask: number,
 ): number | null {
   if (bid <= 0 || ask <= 0) return null;
+  const entryUsd = enginePriceToUsd(trade.asset, trade.entryPrice);
   const mark = trade.side === "BUY" ? bid : ask;
   const direction = trade.side === "BUY" ? 1 : -1;
-  return (mark - trade.entryPrice) * direction * trade.quantity;
+  return (mark - entryUsd) * direction * trade.quantity;
 }
 
 function quoteForTrade(symbol: string, quotes: QuoteMap) {

@@ -1,8 +1,8 @@
 import WebSocket, { WebSocketServer } from "ws";
 
 import { constants } from "./constants";
-import { transform } from "./utils";
-import { current_price_mid } from "./inMemoryStore";
+import { transform, transformToBidAsk } from "./utils";
+import { current_price_bid_ask, current_price_mid } from "./inMemoryStore";
 import { EVENT_KINDS, PUBSUB_EVENTS, QUEUES } from "@repo/types";
 import { publisher } from "@repo/redis";
 import { binanceSubscribeDataSchema } from "./types";
@@ -28,10 +28,16 @@ wsconnection.on("message", (data) => {
 
   if ("stream" in recievedData) {
     const transformedData = transform(recievedData.data);
-
     current_price_mid[transformedData.ticker] = {
       ...current_price_mid[transformedData.ticker],
       price: transformedData.price,
+    };
+
+    const transformedBidAskData = transformToBidAsk(recievedData.data);
+    current_price_bid_ask[transformedBidAskData.ticker] = {
+      ...current_price_bid_ask[transformedBidAskData.ticker],
+      bid: transformedBidAskData.bid,
+      ask: transformedBidAskData.ask,
     };
   }
 });
@@ -49,8 +55,8 @@ setInterval(async () => {
 
   await publisher.XADD(QUEUES.SEND_STREAM, "*", {
     data: JSON.stringify({
-      kind: EVENT_KINDS.PRICE_TICK,
-      payload: current_price_mid,
+      kind: EVENT_KINDS.BID_ASK_TICK,
+      payload: current_price_bid_ask,
     }),
   });
 }, 1000);

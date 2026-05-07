@@ -22,12 +22,13 @@ export async function postLogin(email: string): Promise<LoginResponse> {
     body: JSON.stringify({ email }),
     credentials: "include",
   });
-  const data = (await parseJsonSafe(res)) as LoginResponse | null;
+  const data = await parseJsonSafe(res);
   if (!res.ok) {
     const msg = extractErrorMessage(data) ?? `Request failed (${res.status})`;
     throw new Error(msg);
   }
-  return data ?? {};
+  const payload = unwrapResponseData(data, 2);
+  return (payload as LoginResponse | null) ?? {};
 }
 
 export async function postSignup(email: string): Promise<LoginResponse> {
@@ -37,12 +38,13 @@ export async function postSignup(email: string): Promise<LoginResponse> {
     body: JSON.stringify({ email }),
     credentials: "include",
   });
-  const data = (await parseJsonSafe(res)) as LoginResponse | null;
+  const data = await parseJsonSafe(res);
   if (!res.ok) {
     const msg = extractErrorMessage(data) ?? `Request failed (${res.status})`;
     throw new Error(msg);
   }
-  return data ?? {};
+  const payload = unwrapResponseData(data, 2);
+  return (payload as LoginResponse | null) ?? {};
 }
 
 export async function postLogout(): Promise<void> {
@@ -111,11 +113,12 @@ export async function getOpenPositions(): Promise<OpenPositions> {
     throw new Error(msg);
   }
 
-  if (!data || typeof data !== "object") {
+  const payload = unwrapResponseData(data, 2);
+
+  if (!payload || typeof payload !== "object") {
     return { trades: [], balance: 10_000 };
   }
-  const o = data as Record<string, unknown>;
-  const inner = o.data;
+  const inner = payload;
   if (Array.isArray(inner)) {
     return { trades: inner as OpenTrade[], balance: 10_000 };
   }
@@ -143,10 +146,9 @@ export async function getClosedPositions(): Promise<ClosedTrade[]> {
     throw new Error(msg);
   }
 
-  if (!data || typeof data !== "object") return [];
-  const inner = (data as Record<string, unknown>).data;
-  if (!Array.isArray(inner)) return [];
-  return inner as ClosedTrade[];
+  const payload = unwrapResponseData(data, 2);
+  if (!Array.isArray(payload)) return [];
+  return payload as ClosedTrade[];
 }
 
 /** POST /api/v1/trade/close — requires auth cookie */
@@ -167,13 +169,12 @@ export async function postCloseTrade(
     throw new Error(msg);
   }
 
+  const payload = unwrapResponseData(data, 2);
+
   let balance = 10_000;
-  if (data && typeof data === "object") {
-    const inner = (data as Record<string, unknown>).data;
-    if (inner && typeof inner === "object") {
-      const b = (inner as Record<string, unknown>).balance;
+  if (payload && typeof payload === "object") {
+    const b = (payload as Record<string, unknown>).balance;
       if (typeof b === "number") balance = b;
-    }
   }
   return { balance };
 }
@@ -194,7 +195,7 @@ export async function postOpenTrade(body: OpenTradePayload): Promise<unknown> {
     throw new Error(msg);
   }
 
-  return data;
+  return unwrapResponseData(data, 2);
 }
 
 function extractErrorMessage(data: unknown): string | undefined {
@@ -228,9 +229,7 @@ export async function getKlines(asset: string, interval: string) {
   }
 
   const data = await parseJsonSafe(res);
-  if (!data || typeof data !== "object") return null;
-  const body = data as { data?: unknown };
-  return body.data ?? null;
+  return unwrapResponseData(data, 2);
 }
 
 async function parseJsonSafe(res: Response): Promise<unknown> {
@@ -239,4 +238,15 @@ async function parseJsonSafe(res: Response): Promise<unknown> {
   } catch {
     return null;
   }
+}
+
+function unwrapResponseData(input: unknown, levels: number): unknown {
+  let current = input;
+  for (let i = 0; i < levels; i += 1) {
+    if (!current || typeof current !== "object") return current;
+    const record = current as Record<string, unknown>;
+    if (!("data" in record)) return current;
+    current = record.data;
+  }
+  return current;
 }

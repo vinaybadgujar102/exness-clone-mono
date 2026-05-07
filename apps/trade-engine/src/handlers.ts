@@ -1,4 +1,8 @@
-import type { CreateOrderSchema } from "@repo/types";
+import {
+  ASSETSCONFIG,
+  BALANCE_SCALE,
+  type CreateOrderSchema,
+} from "@repo/types";
 import { currentAssetPrices, users, type Trade } from "./inMemoryDb";
 import type z from "zod";
 
@@ -23,11 +27,13 @@ export function createTrade(
     };
   }
 
+  const assetConfig = ASSETSCONFIG[asset];
+
   const price = side === "BUY" ? engineAsset.buyPrice : engineAsset.sellPrice;
 
   const notional = margin * leverage;
 
-  const quantity = notional / price;
+  const quantity = (notional * assetConfig.quantityScale) / price;
 
   // check margin
   if (user.balance < margin) {
@@ -40,7 +46,9 @@ export function createTrade(
   user.balance -= margin;
 
   const liquidationPrice =
-    side === "BUY" ? price * (1 - 1 / leverage) : price * (1 + 1 / leverage);
+    side === "BUY"
+      ? price - Math.floor(price / leverage)
+      : price + Math.floor(price / leverage);
 
   const createdTrade: Trade = {
     id,
@@ -107,7 +115,11 @@ export function closeTrade(
 
   const direction = tradeToClose.side === "BUY" ? 1 : -1;
   const priceDiff = (currentPrice - tradeToClose.entryPrice) * direction;
-  const pnl = priceDiff * tradeToClose.quantity;
+
+  const pnl =
+    (priceDiff * tradeToClose.quantity * BALANCE_SCALE) /
+    (ASSETSCONFIG[tradeToClose.asset].priceScale *
+      ASSETSCONFIG[tradeToClose.asset].quantityScale);
   tradeToClose.pnl = pnl;
   tradeToClose.status = "CLOSED";
 
@@ -178,7 +190,7 @@ export function handleAddUser(userId: number) {
   }
 
   const newUser = {
-    balance: 10000,
+    balance: 1000000, // scaled balanced
     id: userId,
     openTrades: {},
   };

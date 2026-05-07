@@ -1,5 +1,5 @@
 import type { OpenTrade } from "@/lib/api";
-import { enginePriceToUsd } from "@/lib/tradingMetrics/enginePrice";
+import { engineMoneyToUsd, enginePriceToUsd, engineQuantityToUnits } from "@/lib/tradingMetrics/enginePrice";
 import { roundUsd2 } from "@/lib/tradingMetrics/formatting";
 import type {
   CompleteSnapshotMetrics,
@@ -17,7 +17,8 @@ function unrealizedPnlUsd(
   const entryUsd = enginePriceToUsd(trade.asset, trade.entryPrice);
   const mark = trade.side === "BUY" ? bid : ask;
   const direction = trade.side === "BUY" ? 1 : -1;
-  return (mark - entryUsd) * direction * trade.quantity;
+  const qtyUnits = engineQuantityToUnits(trade.asset, trade.quantity);
+  return (mark - entryUsd) * direction * qtyUnits;
 }
 
 function quoteForTrade(symbol: string, quotes: QuoteMap) {
@@ -35,7 +36,7 @@ export function buildCompleteSnapshot(
   let aggregateLivePnl = 0;
 
   for (const trade of openTrades) {
-    marginInUse += trade.margin;
+    marginInUse += engineMoneyToUsd(trade.margin);
     const quote = quoteForTrade(trade.asset, quotes);
     if (!quote) return null;
     const upnl = unrealizedPnlUsd(trade, quote.bid, quote.ask);
@@ -43,7 +44,7 @@ export function buildCompleteSnapshot(
     aggregateLivePnl += upnl;
   }
 
-  const balance = roundUsd2(accountBalance);
+  const balance = roundUsd2(engineMoneyToUsd(accountBalance));
   const usedMargin = roundUsd2(marginInUse);
   const aggregatePnl = roundUsd2(aggregateLivePnl);
   const equity = roundUsd2(balance + usedMargin + aggregatePnl);

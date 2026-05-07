@@ -1,5 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import type { ZodAny, ZodType } from "zod";
+import { errorResponse } from "../lib/responseFactory";
+import { StatusCodes } from "http-status-codes";
 
 export const requestValidator = (schema: ZodType) => {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -7,7 +9,7 @@ export const requestValidator = (schema: ZodType) => {
       schema.parse(req.body);
       next();
     } catch (error: any) {
-      throw new Error(error);
+      return errorResponse(res, StatusCodes.BAD_REQUEST, "INVALID_REQUEST");
     }
   };
 };

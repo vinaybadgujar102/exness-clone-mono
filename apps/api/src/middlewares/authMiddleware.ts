@@ -1,5 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
+import { errorResponse } from "../lib/responseFactory";
+import { StatusCodes } from "http-status-codes";
 
 declare global {
   namespace Express {
@@ -28,9 +30,6 @@ export function authMiddleware(
     req.userId = data.userId;
     next();
   } catch (error: any) {
-    console.log(error);
-    return res.json({
-      message: "Validation error",
-    });
+    errorResponse(res, StatusCodes.UNAUTHORIZED, "SESSION_TOKEN_INVALID");
   }
 }

@@ -26,11 +26,12 @@ export async function listenForResponse() {
       const data = OrderResponseSchema.parse(parsed);
 
       if (data.kind === JOB_KINDS.ORDER_RESPONSE) {
-        const resolver = pending.get(data.requestId);
+        const pendingRequest = pending.get(data.requestId);
 
-        if (!resolver) continue;
-        resolver(data);
+        if (!pendingRequest) continue;
+        clearTimeout(pendingRequest.timeoutId);
         pending.delete(data.requestId);
+        pendingRequest.resolve(data);
       }
     } catch (err) {
       console.error(err);

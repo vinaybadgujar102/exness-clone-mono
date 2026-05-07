@@ -181,3 +181,5 @@ export const ASSETSCONFIG: Record<AssetSymbols, AssetConfig> = {
     spread: 20,
   },
 };
+
+export const BALANCE_SCALE = 100;

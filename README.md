@@ -1,159 +1,201 @@
-# Turborepo starter
+# exness-clone-mono
 
-This Turborepo starter is maintained by the Turborepo core team.
+A **Bun + Turborepo** monorepo modeling a broker-style stack: **Next.js trading UI → HTTP API → Redis Streams → workers** (trade engine, price poller, Timescale consumer).
 
-## Using this example
+## TL;DR (≤ 60 seconds)
 
-Run the following command:
+- **UI**: `apps/web` (Next.js) on `http://localhost:3001`
+- **API**: `apps/api` on `http://localhost:3000/api/v1` (magic-link auth + trade requests)
+- **Event bus**: **Redis Streams** (`send_stream`, `response_stream`) connects API ↔ workers
+- **Workers**: `price-poller` publishes ticks, `trade-engine` executes jobs, `timescale-db` persists ticks
+- **Demo**: log in, open `/webtrading`, and place trades (end-to-end path is wired through streams)
 
-```sh
-npx create-turbo@latest
+## Screenshots (add yours)
+
+> Replace these with real screenshots: `docs/images/webtrading.png` and `docs/images/login.png`
+
+![Webtrading](docs/images/webtrading.png)
+![Login](docs/images/login.png)
+
+## Table of contents
+
+- [What’s inside](#whats-inside)
+- [Architecture](#architecture)
+- [Key flows](#key-flows)
+- [Quickstart (end-to-end)](#quickstart-end-to-end)
+- [Configuration](#configuration)
+- [Troubleshooting](#troubleshooting)
+- [Design decisions & trade-offs](#design-decisions--trade-offs)
+- [Limitations / project status](#limitations--project-status)
+- [Next steps](#next-steps)
+
+## What’s inside
+
+### Apps (`apps/*`)
+
+- `apps/web`: Next.js trading UI (port **3001**)
+- `apps/api`: Express API (port **3000**) + Prisma/Postgres + Redis publisher/consumer
+- `apps/trade-engine`: Redis consumer that processes trade jobs + maintains in-memory trading state
+- `apps/price-poller`: WebSocket market feed → publishes `PRICE_TICK` events
+- `apps/timescale-db`: Redis consumer → persists ticks to Timescale/Postgres (and intended candle aggregates)
+- `apps/quotes-engine`: present in repo; currently minimal scaffolding (see `apps/quotes-engine/`)
+
+### Packages (`packages/*`)
+
+- `packages/types` (`@repo/types`): shared enums, stream names, Zod schemas, cross-app contracts
+- `packages/redis` (`@repo/redis`): shared Redis clients (publisher/subscriber)
+- `packages/ui` (`@repo/ui`): shared UI scaffold (not required by `apps/web` yet)
+- `packages/eslint-config`, `packages/typescript-config`: shared tooling configs
+
+## Architecture
+
+### Component diagram
+
+```mermaid
+flowchart LR
+  subgraph clients [Clients]
+    Browser[Browser]
+  end
+
+  subgraph apps [Apps]
+    WEB[web :3001]
+    API[api :3000]
+    PE[price-poller]
+    TE[trade-engine]
+    TS[timescale-db]
+  end
+
+  Redis[(Redis Streams)]
+  PG[(Postgres + Prisma)]
+  TSDB[(Timescale / Postgres)]
+  Market[Backpack WebSocket]
+
+  Browser --> WEB
+  WEB --> API
+  API --> PG
+  API --> Redis
+  PE --> Market
+  PE --> Redis
+  TE --> Redis
+  TS --> Redis
+  TS --> TSDB
 ```
 
-## What's inside?
+### Streams (the “glue”)
 
-This Turborepo includes the following packages/apps:
+- `send_stream`: price ticks + trade jobs (produced by API and `price-poller`)
+- `response_stream`: job responses (produced by `trade-engine`, consumed by API to resolve HTTP requests)
 
-### Apps and Packages
+## Key flows
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+### 1) Login (magic link → session cookie)
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
+1. `apps/web` calls `POST /api/v1/auth/login` (or `/signup`)
+2. `apps/api` creates a one-time token and returns a **login link**
+3. Visiting the link hits `GET /api/v1/auth/login/post?token=...`
+4. API sets the `sessionToken` httpOnly cookie and redirects to `http://localhost:3001/webtrading`
 
-### Utilities
+### 2) Trade request (web → api → stream → trade-engine → response)
 
-This Turborepo has some additional tools already setup for you:
+1. `apps/web` calls a trade endpoint with `credentials: "include"`
+2. `apps/api` publishes a job to `send_stream` and tracks the request by `requestId`
+3. `apps/trade-engine` consumes the job, updates in-memory state, and publishes a response to `response_stream`
+4. `apps/api` consumes the response and completes the original HTTP request
 
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
+## Quickstart (end-to-end)
 
-### Build
+### Prerequisites
 
-To build all apps and packages, run the following command:
+- **Bun** (repo is pinned to `bun@1.3.5`)
+- **Redis** running locally (`localhost:6379` works with current defaults)
+- **Postgres** for `apps/api` (via `DATABASE_URL`)
+- **TimescaleDB** (optional, only if you run `apps/timescale-db`)
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+### 1) Install deps
 
-```sh
-cd my-turborepo
-turbo build
+```bash
+bun install
 ```
 
-Without global `turbo`, use your package manager:
+### 2) Configure env vars
 
-```sh
-cd my-turborepo
-npx turbo build
-bun dlx turbo build
-bun exec turbo build
+At minimum you need these (for local dev, use your preferred env mechanism):
+
+- `DATABASE_URL` (API database)
+- `JWT_SECRET` (signs/verifies `sessionToken`)
+
+Optional (for sending magic links via email):
+
+- `RESEND_API_KEY`
+- `EMAIL_FROM`
+
+Frontend:
+
+- `NEXT_PUBLIC_API_BASE_URL` (defaults to `http://localhost:3000`)
+
+### 3) Run services (separate terminals)
+
+```bash
+cd apps/api && bun run dev
 ```
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo build --filter=docs
+```bash
+cd apps/web && bun run dev
 ```
 
-Without global `turbo`:
-
-```sh
-npx turbo build --filter=docs
-bun exec turbo build --filter=docs
-bun exec turbo build --filter=docs
+```bash
+cd apps/trade-engine && bun run dev
 ```
 
-### Develop
-
-To develop all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo dev
+```bash
+cd apps/price-poller && bun run dev
 ```
 
-Without global `turbo`, use your package manager:
+Optional:
 
-```sh
-cd my-turborepo
-npx turbo dev
-bun exec turbo dev
-bun exec turbo dev
+```bash
+cd apps/timescale-db && bun run dev
 ```
 
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+### 4) Verify
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+- Open `http://localhost:3001`
+- Log in and enter `/webtrading`
 
-```sh
-turbo dev --filter=web
-```
+## Configuration
 
-Without global `turbo`:
+| Variable | Used by | Purpose |
+|----------|---------|---------|
+| `DATABASE_URL` | `apps/api` | Connect Prisma/Postgres |
+| `JWT_SECRET` | `apps/api` | Sign/verify the `sessionToken` cookie |
+| `RESEND_API_KEY` | `apps/api` | Send magic-link emails (optional for local) |
+| `EMAIL_FROM` | `apps/api` | Sender identity for Resend |
+| `NEXT_PUBLIC_API_BASE_URL` | `apps/web` | Base URL for browser → API calls |
 
-```sh
-npx turbo dev --filter=web
-bun exec turbo dev --filter=web
-bun exec turbo dev --filter=web
-```
+## Troubleshooting
 
-### Remote Caching
+- **Login doesn’t “stick” locally**: API sets `secure: true` on the session cookie. Depending on your browser/dev setup, cookies may not persist over plain HTTP. For a true local flow, run API over HTTPS or adjust cookie flags for local development.
+- **Workers appear idle**: ensure Redis is running and you started both `price-poller` and `trade-engine` (trade flow relies on Redis Streams).
+- **Timescale consumer fails**: `apps/timescale-db` currently uses a hardcoded local connection string; align your local DB or refactor to env in a future iteration.
 
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
+## Design decisions & trade-offs
 
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
+- **Redis Streams as the event bus**: simple, observable pipeline for workers; avoids tight coupling between API and trade engine.
+- **In-memory trade engine state**: fast iteration and clear demo story; not durable across restarts.
+- **Magic-link auth**: low-friction login UX; requires careful cookie/CORS handling in local dev.
+- **Monorepo with shared types (`@repo/types`)**: keeps event/job contracts consistent across apps; requires discipline to avoid drift.
+- **Docs-first diagrams (Mermaid)**: easy to maintain in GitHub; less “polished” than bespoke visuals.
 
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
+## Limitations / project status
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+- This is a **portfolio/demo system** (not production hardened).
+- Some UI sections are presentational; the backend is intentionally simplified.
+- Timescale integration is experimental (and currently more finicky than the core Redis → trade-engine path).
 
-```sh
-cd my-turborepo
-turbo login
-```
+## Next steps
 
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo login
-bun exec turbo login
-bun exec turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo link
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo link
-bun exec turbo link
-bun exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+1. Make cookie security configurable for local dev (HTTPS dev certs or env-based cookie flags).
+2. Add a `docker-compose.yml` for Redis + Postgres (+ Timescale) for one-command infra.
+3. Persist trade-engine state (or rebuild deterministically) for restart resilience.
+4. Improve observability: request correlation IDs across API ↔ streams ↔ workers.
+5. Add a small “demo script” section for interview walkthroughs.

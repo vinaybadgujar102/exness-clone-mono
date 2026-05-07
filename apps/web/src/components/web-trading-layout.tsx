@@ -26,7 +26,12 @@ import { useTradingMetrics } from "@/lib/tradingMetrics/useTradingMetrics";
 import { useAuthUiStore } from "@/stores/auth-ui-store";
 import { resetSessionScopedStores } from "@/stores/session-reset";
 import { useWebTradingUiStore } from "@/stores/webtrading-ui-store";
-import { enginePriceToUsd } from "@/lib/tradingMetrics/enginePrice";
+import {
+  engineMoneyToUsd,
+  enginePriceToUsd,
+  engineQuantityToUnits,
+  normalizeMaybeScaledPrice,
+} from "@/lib/tradingMetrics/enginePrice";
 import { AssetSymbols, BidAskTickSchema, EVENT_KINDS } from "@repo/types";
 
 type Instrument = {
@@ -51,7 +56,8 @@ function initialQuotes(): Record<
 
 function withEngineSpread(midPrice: number, decimal: number) {
   const priceScale = 10 ** decimal;
-  const priceInt = Math.round(midPrice * priceScale);
+  const midUsd = normalizeMaybeScaledPrice(midPrice, decimal);
+  const priceInt = Math.round(midUsd * priceScale);
   const spreadInt = Math.round(0.01 * priceScale);
   const askInt = priceInt + spreadInt;
   const bidInt = priceInt - spreadInt;
@@ -95,7 +101,8 @@ function unrealizedPnlUsd(
   const entryUsd = enginePriceToUsd(trade.asset, trade.entryPrice);
   const mark = trade.side === "BUY" ? bid : ask;
   const direction = trade.side === "BUY" ? 1 : -1;
-  return (mark - entryUsd) * direction * trade.quantity;
+  const qtyUnits = engineQuantityToUnits(trade.asset, trade.quantity);
+  return (mark - entryUsd) * direction * qtyUnits;
 }
 
 /** API `asset` enum matches `AssetSymbols` values (see apps/api openTradeRequest). */
@@ -135,8 +142,11 @@ export function WebTradingLayout() {
   } = useWebTradingUiStore();
   const [quotes, setQuotes] = useState(initialQuotes);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [tradeMessage, setTradeMessage] = useState<string | null>(null);
   const [tradesError, setTradesError] = useState<string | null>(null);
+  const [orderToast, setOrderToast] = useState<{
+    tone: "success" | "error";
+    message: string;
+  } | null>(null);
   const [localDraftTradeId, setLocalDraftTradeId] = useState<string | null>(
     null,
   );
@@ -195,7 +205,8 @@ export function WebTradingLayout() {
           for (const sym of TRADABLE) {
             const tick = payload[sym];
             if (tick == null) continue;
-            const { bid, ask } = tick;
+            const bid = normalizeMaybeScaledPrice(tick.bid, tick.decimal);
+            const ask = normalizeMaybeScaledPrice(tick.ask, tick.decimal);
             const oldBid = prev[sym].bid;
             const up = oldBid === 0 ? true : bid >= oldBid;
             next[sym] = { bid, ask, up };
@@ -289,8 +300,37 @@ export function WebTradingLayout() {
     metrics == null ? "—" : `${formatUsd2(metrics.balance)} USD`;
   const usedMarginText =
     metrics == null ? "—" : `${formatUsd2(metrics.usedMargin)} USD`;
-  const remainingMarginText =
+  const freeMarginText =
     metrics == null ? "—" : `${formatUsd2(metrics.remainingMargin)} USD`;
+  const totalPnlText =
+    metrics == null ? "—" : `${formatUsd2(metrics.aggregateLivePnl)} USD`;
+  const totalPnlPositive = (metrics?.aggregateLivePnl ?? 0) >= 0;
+
+  const orderValidationMessage = useMemo(() => {
+    if (!canPlaceApiTrade) {
+      return "Unsupported symbol for order API. Pick BTC or ETH.";
+    }
+    if (tradeBusy) return "Order is being placed...";
+    if (!Number.isFinite(margin) || margin <= 0) {
+      return "Enter a margin greater than 0.";
+    }
+    if (!Number.isFinite(leverage) || leverage <= 0) {
+      return "Enter leverage greater than 0.";
+    }
+    if (metrics != null && margin > metrics.remainingMargin) {
+      return "Margin exceeds available free margin.";
+    }
+    return "Order can be placed.";
+  }, [canPlaceApiTrade, leverage, margin, metrics, tradeBusy]);
+
+  const canSubmitOrder =
+    canPlaceApiTrade &&
+    !tradeBusy &&
+    Number.isFinite(margin) &&
+    margin > 0 &&
+    Number.isFinite(leverage) &&
+    leverage > 0 &&
+    (metrics == null || margin <= metrics.remainingMargin);
 
   useEffect(() => {
     if (!localDraftTradeId || !openPositionsQuery.data) return;
@@ -323,13 +363,15 @@ export function WebTradingLayout() {
 
   async function submitOpenTrade(side: "BUY" | "SELL") {
     const asset = symbolToApiAsset(selectedAsset);
-    if (!asset || tradeBusy) return;
+    if (!asset || !canSubmitOrder) return;
     if (margin <= 0 || leverage <= 0) {
-      setTradeMessage("Set margin and leverage.");
+      setOrderToast({
+        tone: "error",
+        message: "Set margin and leverage before placing an order.",
+      });
       return;
     }
 
-    setTradeMessage(null);
     try {
       await openTradeMutation.mutateAsync({
         asset,
@@ -337,14 +379,26 @@ export function WebTradingLayout() {
         margin,
         leverage,
       });
-      setTradeMessage("Order sent.");
+      setOrderToast({
+        tone: "success",
+        message: `${side === "BUY" ? "Buy" : "Sell"} order created successfully.`,
+      });
       void refreshOpenTrades();
     } catch (e) {
-      setTradeMessage(e instanceof Error ? e.message : "Order failed");
+      setOrderToast({
+        tone: "error",
+        message: e instanceof Error ? e.message : "Order failed",
+      });
     } finally {
       // mutation pending state drives busy flag
     }
   }
+
+  useEffect(() => {
+    if (!orderToast) return;
+    const timeout = window.setTimeout(() => setOrderToast(null), 3000);
+    return () => window.clearTimeout(timeout);
+  }, [orderToast]);
 
   async function onLogout() {
     if (isLoggingOut) return;
@@ -601,20 +655,20 @@ export function WebTradingLayout() {
                             {fmt(enginePriceToUsd(t.asset, t.liquidationPrice))}
                           </td>
                           <td className="px-2 py-2 text-right font-mono tabular-nums text-[#e8ecf4]">
-                            {fmt(t.margin)}
+                            {fmt(engineMoneyToUsd(t.margin))}
                           </td>
                           <td className="px-2 py-2 text-right font-mono tabular-nums text-[#8b95a8]">
                             {t.leverage}×
                           </td>
                           <td className="px-2 py-2 text-right font-mono tabular-nums text-[#8b95a8]">
-                            {Number(t.quantity).toFixed(4)}
+                            {engineQuantityToUnits(t.asset, t.quantity).toFixed(4)}
                           </td>
                           <td
                             className={`px-2 py-2 text-right font-mono tabular-nums ${
                               t.pnl >= 0 ? "text-[#26c281]" : "text-[#ef5350]"
                             }`}
                           >
-                            {formatUsd2(t.pnl)}
+                            {formatUsd2(engineMoneyToUsd(t.pnl))}
                           </td>
                           <td className="px-2 py-2 text-right font-mono tabular-nums text-[#8b95a8]">
                             {fmtClosedAt(t.createdAt)}
@@ -687,13 +741,13 @@ export function WebTradingLayout() {
                             {fmt(enginePriceToUsd(t.asset, t.entryPrice))}
                           </td>
                           <td className="px-2 py-2 text-right font-mono tabular-nums text-[#e8ecf4]">
-                            {fmt(t.margin)}
+                            {fmt(engineMoneyToUsd(t.margin))}
                           </td>
                           <td className="px-2 py-2 text-right font-mono tabular-nums text-[#8b95a8]">
                             {t.leverage}×
                           </td>
                           <td className="px-2 py-2 text-right font-mono tabular-nums text-[#8b95a8]">
-                            {t.quantity.toFixed(4)}
+                            {engineQuantityToUnits(t.asset, t.quantity).toFixed(4)}
                           </td>
                           <td
                             className={`px-2 py-2 text-right font-mono tabular-nums ${
@@ -747,8 +801,9 @@ export function WebTradingLayout() {
             <AccountSummary
               equityText={equityText}
               balanceText={balanceText}
-              usedMarginText={usedMarginText}
-              remainingMarginText={remainingMarginText}
+              freeMarginText={freeMarginText}
+              totalPnlText={totalPnlText}
+              totalPnlPositive={totalPnlPositive}
               isStale={isStale}
             />
           </div>
@@ -770,7 +825,7 @@ export function WebTradingLayout() {
           <div className="grid grid-cols-2 gap-2 p-3">
             <button
               type="button"
-              disabled={!canPlaceApiTrade || tradeBusy}
+              disabled={!canSubmitOrder}
               onClick={() => void submitOpenTrade("SELL")}
               className="flex flex-col items-center rounded-lg bg-[#3d1f24] py-3 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -783,7 +838,7 @@ export function WebTradingLayout() {
             </button>
             <button
               type="button"
-              disabled={!canPlaceApiTrade || tradeBusy}
+              disabled={!canSubmitOrder}
               onClick={() => void submitOpenTrade("BUY")}
               className="flex flex-col items-center rounded-lg bg-[#1e3a5f] py-3 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -862,20 +917,33 @@ export function WebTradingLayout() {
                 className="mt-2 w-full rounded border border-[#2a2e39] bg-[#14171f] px-2 py-1.5 font-mono text-[11px] tabular-nums text-white outline-none focus:border-[#3d4454]"
               />
             </div>
-            {tradeMessage && (
-              <p
-                className={`text-center text-[11px] ${
-                  tradeMessage === "Order sent."
-                    ? "text-[#26c281]"
-                    : "text-[#ef5350]"
-                }`}
-              >
-                {tradeMessage}
-              </p>
-            )}
+            <p
+              className={`text-center text-[11px] ${
+                orderValidationMessage === "Order can be placed."
+                  ? "text-[#26c281]"
+                  : "text-[#ef5350]"
+              }`}
+            >
+              {orderValidationMessage}
+            </p>
           </div>
         </aside>
       </div>
+      {orderToast && (
+        <div className="pointer-events-none fixed bottom-4 right-4 z-50">
+          <div
+            className={`rounded-md border px-3 py-2 text-xs shadow-lg ${
+              orderToast.tone === "success"
+                ? "border-[#26c281]/40 bg-[#13281f] text-[#a4e9cb]"
+                : "border-[#ef5350]/40 bg-[#34191d] text-[#fecaca]"
+            }`}
+            role="status"
+            aria-live="polite"
+          >
+            {orderToast.message}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

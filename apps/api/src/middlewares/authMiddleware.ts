@@ -16,12 +16,13 @@ export function authMiddleware(
   res: Response,
   next: NextFunction,
 ) {
-  console.log(req.cookies);
   const sessionToken = req.cookies.sessionToken;
   if (!sessionToken) {
-    return res.json({
-      error: "NO Token Present",
-    });
+    return errorResponse(
+      res,
+      StatusCodes.UNAUTHORIZED,
+      "SESSION_TOKEN_MISSING",
+    );
   }
   try {
     const data = jwt.verify(sessionToken, process.env.JWT_SECRET as string) as {

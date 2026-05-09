@@ -47,8 +47,8 @@ export const CreateOrderSchema = z.object({
     trade: z.object({
       id: z.string(),
       side: z.enum(["BUY", "SELL"]),
-      margin: z.number(),
-      leverage: z.number(),
+      leverage: z.number().min(1).max(100),
+      margin: z.number().min(1),
       asset: z.enum(AssetSymbols),
     }),
   }),
@@ -183,3 +183,9 @@ export const ASSETSCONFIG: Record<AssetSymbols, AssetConfig> = {
 };
 
 export const BALANCE_SCALE = 100;
+
+export type PendingRequest = {
+  resolve: (data: any) => void;
+  reject: (data: any) => void;
+  timeoutId: NodeJS.Timeout;
+};

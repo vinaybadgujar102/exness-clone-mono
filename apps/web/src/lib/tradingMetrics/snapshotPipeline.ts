@@ -38,19 +38,22 @@ export function buildCompleteSnapshot(
   for (const trade of openTrades) {
     marginInUse += engineMoneyToUsd(trade.margin);
     const quote = quoteForTrade(trade.asset, quotes);
-    if (!quote) return null;
+    if (!quote) continue;
     const upnl = unrealizedPnlUsd(trade, quote.bid, quote.ask);
-    if (upnl == null) return null;
+    if (upnl == null) continue;
     aggregateLivePnl += upnl;
   }
 
-  const balance = roundUsd2(engineMoneyToUsd(accountBalance));
+  // Engine accountBalance is withdrawable funds after margin reservation.
+  const availableWalletFunds = roundUsd2(engineMoneyToUsd(accountBalance));
   const usedMargin = roundUsd2(marginInUse);
   const aggregatePnl = roundUsd2(aggregateLivePnl);
-  const equity = roundUsd2(balance + usedMargin + aggregatePnl);
+  // Balance = total wallet funds excluding unrealized PnL.
+  const balance = roundUsd2(availableWalletFunds + usedMargin);
+  // Equity = account value right now, including live PnL.
+  const equity = roundUsd2(balance + aggregatePnl);
+  // Free margin = funds available for opening new trades.
   const remainingMargin = roundUsd2(equity - usedMargin);
-
-  if (usedMargin > 0 && remainingMargin > equity) return null;
 
   return {
     balance,

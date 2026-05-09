@@ -32,13 +32,18 @@ tradeRouter.get("/trades", async (req, res) => {
     }
 
     const requestId = crypto.randomUUID();
+
     const promise = new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         pending.delete(requestId);
-        reject(new Error("Timeout"));
+        reject(new Error("TIMEOUT"));
       }, 10000);
 
-      pending.set(requestId, { resolve, reject, timeoutId });
+      pending.set(requestId, {
+        resolve,
+        reject,
+        timeoutId,
+      });
     });
 
     const payload: z.infer<typeof GetOpenOrdersSchema> = {
@@ -146,16 +151,44 @@ tradeRouter.post(
       };
 
       const promise = new Promise((resolve, reject) => {
-        pending.set(requestId, resolve);
+        const timeoutId = setTimeout(() => {
+          pending.delete(requestId);
+          reject(new Error("TIMEOUT"));
+        }, 10000);
+
+        pending.set(requestId, {
+          resolve,
+          reject,
+          timeoutId,
+        });
       });
 
       await publisher.XADD(QUEUES.SEND_STREAM, "*", {
         data: JSON.stringify(payload),
       });
 
-      const response = await promise;
+      const envelope = (await promise) as {
+        payload: {
+          success: boolean;
+          message: string;
+          data?: Trade;
+        };
+      };
 
-      return successResponse(res, StatusCodes.OK, { data: response });
+      if (!envelope.payload.success) {
+        return errorResponse(
+          res,
+          StatusCodes.BAD_REQUEST,
+          envelope.payload.message,
+        );
+      }
+
+      return successResponse(res, StatusCodes.OK, {
+        data: {
+          message: envelope.payload.message,
+          data: envelope.payload.data,
+        },
+      });
     } catch (error) {
       return errorResponse(
         res,
@@ -189,10 +222,18 @@ tradeRouter.post(
         },
       };
 
-      const promise = new Promise((resolve) => {
-        pending.set(requestId, resolve);
-      });
+      const promise = new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          pending.delete(requestId);
+          reject(new Error("TIMEOUT"));
+        }, 10000);
 
+        pending.set(requestId, {
+          resolve,
+          reject,
+          timeoutId,
+        });
+      });
       await publisher.XADD(QUEUES.SEND_STREAM, "*", {
         data: JSON.stringify(payload),
       });

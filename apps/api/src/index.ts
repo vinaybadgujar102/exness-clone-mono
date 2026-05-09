@@ -3,6 +3,7 @@ import cors from "cors";
 import { listenForResponse } from "./validators/worker.ts";
 import v1Router from "./routes/index.ts";
 import cookieParser from "cookie-parser";
+import type { PendingRequest } from "@repo/types";
 
 const app = express();
 
@@ -16,7 +17,7 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 
-export const pending = new Map();
+export const pending = new Map<string, PendingRequest>();
 
 app.use("/api/v1", v1Router);
 

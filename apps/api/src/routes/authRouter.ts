@@ -144,8 +144,17 @@ authRouter.get("/login/post", async (req: Request, res: Response) => {
 
     const requestId = crypto.randomUUID();
 
-    const promise = new Promise((resolve) => {
-      pending.set(requestId, resolve);
+    const promise = new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        pending.delete(requestId);
+        reject(new Error("TIMEOUT"));
+      }, 10000);
+
+      pending.set(requestId, {
+        resolve,
+        reject,
+        timeoutId,
+      });
     });
 
     const payload: z.infer<typeof AddUserSchema> = {
@@ -230,7 +239,7 @@ authRouter.post("/signup", async (req: Request, res: Response) => {
     });
 
     // send token via email to signin
-    const link = `http://localhost:8080/api/v1/signin/post?:${rawMagicToken}`;
+    const link = `http://localhost:3000/api/v1/auth/login/post?token=${rawMagicToken}`;
 
     return successResponse(res, StatusCodes.CREATED, {
       message: "Check your email for a sign-in link",

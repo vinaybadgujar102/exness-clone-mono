@@ -16,15 +16,19 @@ await initDB();
 await createOneMinCandles();
 await createFiveMinCandles();
 
-await subscriber.subscribe(PUBSUB_EVENTS.PRICE_CHANNEL, async (message) => {
-  const parsed = JSON.parse(message);
-  const data = EventSchema.parse(parsed);
-  if (data.kind === EVENT_KINDS.PRICE_TICK) {
-    for (const [ticker, value] of Object.entries(data.payload)) {
-      const price = value.price;
-      await insertTick(ticker as AssetSymbols, price).then(() =>
-        console.log("data inserted"),
-      );
+try {
+  await subscriber.subscribe(PUBSUB_EVENTS.PRICE_CHANNEL, async (message) => {
+    const parsed = JSON.parse(message);
+    const data = EventSchema.parse(parsed);
+    if (data.kind === EVENT_KINDS.PRICE_TICK) {
+      for (const [ticker, value] of Object.entries(data.payload)) {
+        const price = value.price;
+        await insertTick(ticker as AssetSymbols, price).then(() =>
+          console.log("data inserted"),
+        );
+      }
     }
-  }
-});
+  });
+} catch (err) {
+  console.error(err);
+}

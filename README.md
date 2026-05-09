@@ -1,4 +1,4 @@
-# exness-clone-mono
+# exness-clone-mono (ONLY FRONTEND IS VIBE CODED as mentioned in SUPER 30 lecture. ALL OTHER SERVICES ARE WRITTEN AFTER UNDERSTANDING ARCHITECHTURE)
 
 A **Bun + Turborepo** monorepo modeling a broker-style stack: **Next.js trading UI → HTTP API → Redis Streams → workers** (trade engine, price poller, Timescale consumer).
 
